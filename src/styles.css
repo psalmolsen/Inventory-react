@@ -1,0 +1,107 @@
+@import "tailwindcss" source(none);
+@source "../src";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --radius-2xl: calc(var(--radius) + 8px);
+  --radius-3xl: calc(var(--radius) + 12px);
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  /* CCB brand tokens */
+  --color-ccb-blue: var(--ccb-blue);
+  --color-ccb-red: var(--ccb-red);
+  --color-ccb-yellow: var(--ccb-yellow);
+  --color-ccb-gold: var(--ccb-gold);
+  --color-ccb-navy: var(--ccb-navy);
+  --color-ccb-canvas: var(--ccb-canvas);
+  --color-ccb-surface: var(--ccb-surface);
+  --color-ccb-border: var(--ccb-border);
+  --color-ccb-border-2: var(--ccb-border-2);
+  --color-ccb-muted: var(--ccb-muted);
+  --color-ccb-muted-2: var(--ccb-muted-2);
+  --color-ccb-text: var(--ccb-text);
+
+  --font-sans: "Inter", "Segoe UI", ui-sans-serif, system-ui, sans-serif;
+}
+
+:root {
+  --radius: 0.75rem;
+
+  --ccb-blue: #293A92;
+  --ccb-red: #C0392B;
+  --ccb-yellow: #FEF200;
+  --ccb-gold: #E9B52D;
+  --ccb-navy: #1A2560;
+  --ccb-canvas: #F4F6FB;
+  --ccb-surface: #FFFFFF;
+  --ccb-border: #E5E8F4;
+  --ccb-border-2: #EAEDF5;
+  --ccb-muted: #5A6488;
+  --ccb-muted-2: #7B86AA;
+  --ccb-text: #1A2535;
+
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.2 0.04 265);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.2 0.04 265);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.2 0.04 265);
+  --primary: oklch(0.35 0.16 270);
+  --primary-foreground: oklch(1 0 0);
+  --secondary: oklch(0.96 0.01 260);
+  --secondary-foreground: oklch(0.2 0.04 265);
+  --muted: oklch(0.96 0.01 260);
+  --muted-foreground: oklch(0.5 0.04 265);
+  --accent: oklch(0.96 0.01 260);
+  --accent-foreground: oklch(0.2 0.04 265);
+  --destructive: oklch(0.55 0.2 27);
+  --destructive-foreground: oklch(1 0 0);
+  --border: oklch(0.92 0.01 260);
+  --input: oklch(0.92 0.01 260);
+  --ring: oklch(0.7 0.04 260);
+}
+
+@layer base {
+  * {
+    border-color: var(--color-border);
+  }
+  html, body {
+    background-color: var(--color-ccb-canvas);
+    color: var(--color-ccb-text);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+  }
+}
+
+@utility label-eyebrow {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--color-ccb-muted);
+}

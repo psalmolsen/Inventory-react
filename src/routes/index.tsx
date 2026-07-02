@@ -1,0 +1,1247 @@
+import { createFileRoute } from "@tanstack/react-router";
+import { useMemo, useState, useEffect } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import {
+  getTabsFn,
+  getMaterialsFn,
+  stockInFn,
+  stockOutFn,
+  editMaterialFn,
+  addMaterialFn,
+  provisionCurrentMonthFn,
+} from "../lib/server-functions";
+import {
+  Search,
+  Plus,
+  MoreVertical,
+  X,
+  ChevronDown,
+  Minus,
+  LogOut,
+  BarChart3,
+  Package,
+  Droplets,
+  Circle,
+  Boxes,
+  Factory,
+  Upload,
+} from "lucide-react";
+
+export const Route = createFileRoute("/")({
+  component: MaterialMonitoring,
+});
+
+/* ---------------- Types ---------------- */
+
+type Material = {
+  rowNumber: number;
+  date: string;
+  code: string;
+  desc: string;
+  uom: string;
+  price: number | null;
+  initial: number;
+  received: number;
+  balance: number;
+  issued: number;
+  dailyOut: number[];
+  tabName: string;
+  tone: string;
+  initials: string;
+};
+
+const RANGE_LABEL: Record<string, string> = {
+  Weekly: "THIS WEEK VALUE",
+  Monthly: "THIS MONTH VALUE",
+  Quarterly: "THIS QUARTER VALUE",
+  Yearly: "THIS YEAR VALUE",
+};
+
+const peso = (n: number | null) =>
+  n === null ? "N/A" : `₱ ${n.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+const fmt = (n: number) => n.toLocaleString("en-PH");
+
+/* ---------------- Small primitives ---------------- */
+
+function TitleBar({ title, subtitle }: { title: string; subtitle?: string }) {
+  return (
+    <div className="flex items-center gap-3">
+      <span className="block h-[22px] w-[4px] rounded-sm bg-ccb-gold" />
+      <div>
+        <h1 className="text-[18px] font-bold leading-tight text-ccb-navy">{title}</h1>
+        {subtitle ? <p className="text-[12px] text-ccb-muted">{subtitle}</p> : null}
+      </div>
+    </div>
+  );
+}
+
+function Thumb({
+  initials,
+  tone,
+  size = 64,
+  code,
+}: {
+  initials: string;
+  tone: string;
+  size?: number;
+  code?: string;
+}) {
+  // Try extensions in order: jpg → png → jpeg (mirrors JavaFX resolveImageFile)
+  const EXTS = ["jpg", "png", "jpeg"];
+  const [extIdx, setExtIdx] = useState(0);
+  const showImage = code && extIdx < EXTS.length;
+
+  if (showImage) {
+    return (
+      <div
+        style={{ width: size, height: size }}
+        className="shrink-0 rounded-2xl border border-[#DBE1F4] shadow-inner overflow-hidden bg-ccb-canvas"
+      >
+        <img
+          src={`/material-icons/${encodeURIComponent(code)}.${EXTS[extIdx]}`}
+          alt={code}
+          style={{ width: size, height: size, objectFit: "cover" }}
+          onError={() => setExtIdx((i) => i + 1)}
+        />
+      </div>
+    );
+  }
+
+  return (
+    <div
+      style={{ width: size, height: size }}
+      className={`shrink-0 rounded-2xl bg-gradient-to-br ${tone} flex items-center justify-center border border-[#DBE1F4] shadow-inner`}
+    >
+      <span className="font-bold text-white tracking-wide" style={{ fontSize: size * 0.34 }}>
+        {initials}
+      </span>
+    </div>
+  );
+}
+
+function Kpi({
+  label,
+  value,
+  unit,
+  variant,
+}: {
+  label: string;
+  value: string;
+  unit?: string;
+  variant: "blue" | "yellow" | "blue2" | "blue3" | "navy" | "gold";
+}) {
+  const styles = {
+    blue:   "bg-[#2E3EA8] text-white",   // lightest — Initial Stock
+    blue3:  "bg-[#273690] text-white",   // mid-light — Received
+    blue2:  "bg-[#202D78] text-white",   // mid-dark  — Current Balance
+    navy:   "bg-[#1A2560] text-white",   // darkest   — Issued
+    yellow: "bg-ccb-yellow text-ccb-navy",
+    gold:   "bg-gradient-to-br from-[#C8861A] to-[#E9B52D] text-white",
+  }[variant];
+  const labelColor = (variant === "yellow") ? "text-ccb-navy/70" : "text-white/70";
+  const unitColor  = (variant === "yellow") ? "text-ccb-navy/80" : "text-white/80";
+
+  return (
+    <div className={`relative overflow-hidden rounded-2xl p-5 shadow-sm ${styles}`}>
+      <div className={`text-[10px] font-semibold uppercase tracking-[0.16em] ${labelColor}`}>{label}</div>
+      <div className="mt-3 flex items-baseline gap-2">
+        <div className="text-[30px] font-extrabold leading-none">{value}</div>
+        {unit ? <div className={`text-[12px] font-semibold uppercase tracking-widest ${unitColor}`}>{unit}</div> : null}
+      </div>
+      <div className="pointer-events-none absolute -right-6 -bottom-6 h-24 w-24 rounded-full bg-white/5" />
+    </div>
+  );
+}
+
+/* ---------------- Sidebar & Topbar ---------------- */
+
+const NAV = [
+  { label: "Material Monitoring", icon: Package, active: true },
+  { label: "CNF Monitoring", icon: Droplets, active: false },
+  { label: "O-Ring Monitoring", icon: Circle, active: false },
+  { label: "Pellets L-Sales", icon: Boxes, active: false },
+  { label: "Station Consumption", icon: Factory, active: false },
+];
+
+function Sidebar() {
+  return (
+    <aside className="w-[220px] shrink-0 bg-ccb-navy text-white flex flex-col">
+      <div className="px-5 pt-5 pb-6 border-b border-white/10">
+        <div className="flex items-center gap-3">
+          <div className="h-11 w-11 rounded-lg border-2 border-ccb-red flex items-center justify-center shadow-md overflow-hidden bg-white">
+            <img
+              src="/CCBLogo.png"
+              alt="CCB Logo"
+              className="h-full w-full object-contain"
+            />
+          </div>
+          <div className="leading-tight">
+            <div className="text-[13px] font-bold">CCB Inventory</div>
+            <div className="text-[10px] uppercase tracking-[0.14em] text-white/60">Management System</div>
+          </div>
+        </div>
+      </div>
+
+      <nav className="flex-1 py-4">
+        {NAV.map(({ label, icon: Icon, active }) => (
+          <button
+            key={label}
+            className={`relative w-full text-left flex items-center gap-3 px-5 py-3 text-[12.5px] transition-colors ${
+              active ? "text-white bg-white/[0.06] font-semibold" : "text-white/70 hover:text-white hover:bg-white/[0.04]"
+            }`}
+          >
+            {active && <span className="absolute left-0 top-0 bottom-0 w-[3px] bg-ccb-gold" />}
+            <Icon size={16} strokeWidth={2} className={active ? "text-ccb-gold" : "text-white/60"} />
+            <span>{label}</span>
+          </button>
+        ))}
+      </nav>
+
+      <div className="p-4 border-t border-white/10">
+        <button className="w-full flex items-center gap-2 px-3 py-2 rounded-md text-[12.5px] text-ccb-red/90 hover:bg-white/[0.04] hover:text-ccb-red transition-colors">
+          <LogOut size={15} />
+          Logout
+        </button>
+      </div>
+    </aside>
+  );
+}
+
+function TopBar({ children }: { children?: React.ReactNode }) {
+  return (
+    <div className="bg-white border-b border-ccb-border">
+      <div className="flex items-center justify-between px-8 py-4">
+        <TitleBar title="Material Monitoring" subtitle="Track stock levels, pricing, and sheet-synced materials" />
+        <div className="flex items-center gap-4">
+          <div className="text-[11px] uppercase tracking-widest text-ccb-muted">Auto-loaded from Google Sheets</div>
+          <div className="h-9 w-9 rounded-full bg-gradient-to-br from-ccb-blue to-ccb-navy text-white flex items-center justify-center text-[12px] font-bold">
+            OP
+          </div>
+        </div>
+      </div>
+      <div className="h-[3px] bg-ccb-red" />
+      {children}
+    </div>
+  );
+}
+
+/* ---------------- Material Card ---------------- */
+
+function MaterialCard({
+  m,
+  selected,
+  onSelect,
+  onEllipsis,
+  onStockIn,
+  onStockOut,
+  rangeLabel,
+}: {
+  m: Material;
+  selected: boolean;
+  onSelect: () => void;
+  onEllipsis: (e: React.MouseEvent) => void;
+  onStockIn: () => void;
+  onStockOut: () => void;
+  rangeLabel: string;
+}) {
+  const monthValue = m.price === null ? null : m.price * m.issued;
+
+  return (
+    <div
+      onClick={onSelect}
+      className={`group relative flex items-center gap-5 rounded-2xl border p-5 transition-all cursor-pointer ${
+        selected
+          ? "border-ccb-gold bg-[#FFF8D6] shadow-[0_2px_0_rgba(233,181,45,0.35),0_10px_30px_-14px_rgba(26,37,96,0.25)]"
+          : "border-[#E2E8FB] bg-white hover:border-ccb-gold hover:bg-[#FFF8D6] shadow-sm"
+      }`}
+    >
+      <Thumb initials={m.initials} tone={m.tone} code={m.code} />
+
+      <div className="min-w-0 flex-1">
+        <div className="text-[15px] font-bold text-ccb-navy leading-tight truncate">{m.desc}</div>
+        <div className="mt-1 flex items-center gap-3 text-[11px] uppercase tracking-[0.14em] text-ccb-muted-2">
+          <span className="font-semibold">{m.code}</span>
+          <span className="h-1 w-1 rounded-full bg-ccb-muted-2/60" />
+          <span>Bal {fmt(m.balance)} {m.uom}</span>
+        </div>
+      </div>
+
+      <div className="flex items-center gap-2">
+        <button
+          onClick={(e) => { e.stopPropagation(); onStockIn(); }}
+          className="rounded-full border border-ccb-border px-3.5 py-1.5 text-[11.5px] font-semibold text-ccb-navy hover:border-ccb-blue hover:text-ccb-blue transition-colors"
+        >
+          Stock In +
+        </button>
+        <button
+          onClick={(e) => { e.stopPropagation(); onStockOut(); }}
+          className="rounded-full border border-ccb-border px-3.5 py-1.5 text-[11.5px] font-semibold text-ccb-navy hover:border-ccb-red hover:text-ccb-red transition-colors"
+        >
+          Stock Out −
+        </button>
+        <button
+          onClick={(e) => { e.stopPropagation(); onEllipsis(e); }}
+          className="ml-1 rounded-full p-2 text-ccb-muted-2 hover:bg-ccb-canvas hover:text-ccb-navy transition-colors"
+        >
+          <MoreVertical size={18} />
+        </button>
+      </div>
+
+      <div className="mx-1 h-14 w-px bg-ccb-border" />
+
+      <div className="min-w-[150px] text-right">
+        <div className="text-[9.5px] font-semibold uppercase tracking-[0.16em] text-ccb-muted-2">Unit Price</div>
+        <div className="text-[15px] font-bold text-ccb-navy">{peso(m.price)}</div>
+        <div className="mt-2 text-[9.5px] font-semibold uppercase tracking-[0.16em] text-ccb-muted-2">{rangeLabel}</div>
+        <div className="text-[15px] font-extrabold text-ccb-red">{peso(monthValue)}</div>
+      </div>
+    </div>
+  );
+}
+
+/* ---------------- Ellipsis Popover ---------------- */
+
+function EllipsisPopover({
+  x,
+  y,
+  onClose,
+  onOpenReport,
+  onEdit,
+}: {
+  x: number;
+  y: number;
+  onClose: () => void;
+  onOpenReport: () => void;
+  onEdit: () => void;
+}) {
+  return (
+    <div
+      style={{ top: `${y}px`, left: `${x}px` }}
+      className="absolute z-30 w-[310px] rounded-2xl border border-ccb-border bg-white shadow-[0_20px_50px_-20px_rgba(26,37,96,0.35)]"
+    >
+      <div className="flex items-center justify-between px-5 pt-4 pb-3">
+        <div className="text-[13px] font-bold text-ccb-navy">Quick Actions</div>
+        <button onClick={onClose} className="rounded-md p-1 text-ccb-muted hover:bg-ccb-canvas hover:text-ccb-navy">
+          <X size={15} />
+        </button>
+      </div>
+      <div className="px-3 pb-3 space-y-2">
+        <button
+          onClick={onOpenReport}
+          className="w-full rounded-xl border border-ccb-border bg-white px-4 py-3 text-left transition-colors hover:bg-ccb-canvas hover:border-ccb-blue/50"
+        >
+          <div className="text-[12.5px] font-bold text-ccb-navy">Monthly Daily Out Report</div>
+          <div className="mt-0.5 text-[11px] text-ccb-muted">View daily issued quantities per day of the month</div>
+        </button>
+        <button
+          onClick={onEdit}
+          className="w-full rounded-xl border border-ccb-border bg-white px-4 py-3 text-left transition-colors hover:bg-ccb-canvas hover:border-ccb-blue/50"
+        >
+          <div className="text-[12.5px] font-bold text-ccb-navy">Edit Material Details</div>
+          <div className="mt-0.5 text-[11px] text-ccb-muted">Update code, description, UOM, price and stock figures</div>
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/* ---------------- Modal shell ---------------- */
+
+function Modal({
+  children,
+  width = 480,
+  onClose,
+}: {
+  children: React.ReactNode;
+  width?: number;
+  onClose: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-ccb-navy/50 backdrop-blur-sm p-6" onClick={onClose}>
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{ width }}
+        className="max-h-[90vh] overflow-hidden rounded-[20px] bg-white shadow-[0_30px_80px_-20px_rgba(26,37,96,0.6)]"
+      >
+        {children}
+      </div>
+    </div>
+  );
+}
+
+/* ---------------- Stock In / Out Dialog ---------------- */
+
+function StockDialog({
+  mode,
+  material,
+  onClose,
+  onSuccess,
+}: {
+  mode: "in" | "out";
+  material: Material;
+  onClose: () => void;
+  onSuccess: () => void;
+}) {
+  const [qty, setQty] = useState(1);
+  const isIn = mode === "in";
+  const [isSaving, setIsSaving] = useState(false);
+
+  const handleSave = async () => {
+    setIsSaving(true);
+    try {
+      if (isIn) {
+        await stockInFn({
+          data: {
+            tabName: material.tabName,
+            rowNumber: material.rowNumber,
+            qty,
+          },
+        });
+      } else {
+        const today = new Date();
+        const day = today.getDate();
+        await stockOutFn({
+          data: {
+            tabName: material.tabName,
+            rowNumber: material.rowNumber,
+            qty,
+            day,
+          },
+        });
+      }
+      onSuccess();
+      onClose();
+    } catch (error) {
+      console.error("Error updating stock quantity:", error);
+      alert("Failed to save transaction. Ensure Google Sheets credentials are correct.");
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  return (
+    <Modal onClose={onClose} width={440}>
+      <div className="border-b-[3px] border-ccb-red px-6 pt-6 pb-5">
+        <div className="flex items-start justify-between">
+          <div>
+            <div className="label-eyebrow">{isIn ? "Stock-In Recording" : "Stock Out Recording"}</div>
+            <h2 className="mt-1 text-[18px] font-bold text-ccb-navy">
+              {isIn ? "Add Received Quantity" : "Stock Out Record"}
+            </h2>
+            <p className="mt-1 text-[12px] text-ccb-muted">
+              {isIn ? "Add item quantity to inventory stock." : "Record daily items issued to production."}
+            </p>
+          </div>
+          <button onClick={onClose} className="rounded-md p-1 text-ccb-muted hover:bg-ccb-canvas hover:text-ccb-navy" disabled={isSaving}>
+            <X size={18} />
+          </button>
+        </div>
+      </div>
+
+      <div className="p-6">
+        <div className="rounded-2xl bg-ccb-canvas p-4">
+          <span className="inline-block rounded-md bg-white px-2 py-1 text-[10.5px] font-bold tracking-widest text-ccb-navy border border-ccb-border">
+            {material.code}
+          </span>
+          <div className="mt-2 text-[15px] font-bold text-ccb-navy">{material.desc}</div>
+          <div className="mt-1 text-[12px] text-ccb-muted">
+            Current Balance: <span className="font-semibold text-ccb-navy">{fmt(material.balance)} {material.uom}</span>
+          </div>
+        </div>
+
+        <div className="mt-6">
+          <div className="label-eyebrow text-center">{isIn ? "Quantity to Add" : "Quantity to Disburse"}</div>
+          <div className="mt-3 flex items-center justify-center gap-4">
+            <button
+              onClick={() => setQty(Math.max(1, qty - 1))}
+              disabled={isSaving}
+              className="h-12 w-12 rounded-full border border-ccb-border text-ccb-navy hover:border-ccb-blue hover:text-ccb-blue transition disabled:opacity-50"
+            >
+              <Minus size={18} className="mx-auto" />
+            </button>
+            <input
+              type="number"
+              value={qty}
+              disabled={isSaving}
+              onChange={(e) => setQty(Math.max(1, Number(e.target.value) || 1))}
+              className="w-32 rounded-xl border border-ccb-border bg-white py-3 text-center text-[28px] font-extrabold text-ccb-navy outline-none focus:border-ccb-blue disabled:opacity-50"
+            />
+            <button
+              onClick={() => setQty(qty + 1)}
+              disabled={isSaving}
+              className="h-12 w-12 rounded-full border border-ccb-border text-ccb-navy hover:border-ccb-blue hover:text-ccb-blue transition disabled:opacity-50"
+            >
+              <Plus size={18} className="mx-auto" />
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div className="flex items-center justify-end gap-2 border-t border-ccb-border bg-ccb-canvas/60 px-6 py-4">
+        <button
+          onClick={onClose}
+          disabled={isSaving}
+          className="rounded-lg border border-ccb-border bg-white px-5 py-2 text-[12.5px] font-semibold text-ccb-navy hover:bg-ccb-canvas disabled:opacity-50"
+        >
+          Close
+        </button>
+        <button
+          onClick={handleSave}
+          disabled={isSaving}
+          className="rounded-lg bg-ccb-blue px-5 py-2 text-[12.5px] font-semibold text-white shadow-sm hover:bg-ccb-navy disabled:opacity-50"
+        >
+          {isSaving ? "Saving..." : "Save"}
+        </button>
+      </div>
+    </Modal>
+  );
+}
+
+/* ---------------- Monthly Daily Out Report ---------------- */
+
+function MonthlyReport({
+  material,
+  onClose,
+  tabs,
+}: {
+  material: Material;
+  onClose: () => void;
+  tabs: string[];
+}) {
+  const [month, setMonth] = useState(material.tabName);
+
+  // Load the selected tab's data to extract this material's daily details
+  const { data: materials = [], isLoading } = useQuery({
+    queryKey: ["materials", month],
+    queryFn: () => getMaterialsFn({ data: month }),
+  });
+
+  const matched = useMemo(() => {
+    return materials.find((m) => m.code.toLowerCase() === material.code.toLowerCase()) || null;
+  }, [materials, material.code]);
+
+  const days = useMemo(() => {
+    if (matched) return matched.dailyOut;
+    return Array(31).fill(0);
+  }, [matched]);
+
+  const total = useMemo(() => days.reduce((a, b) => a + b, 0), [days]);
+  const active = useMemo(() => days.filter((d) => d > 0).length, [days]);
+  const peakIdx = useMemo(() => {
+    const maxVal = Math.max(...days);
+    return maxVal > 0 ? days.indexOf(maxVal) : -1;
+  }, [days]);
+  const avg = useMemo(() => (active ? (total / active).toFixed(1) : "0.0"), [total, active]);
+  const max = useMemo(() => Math.max(...days) || 1, [days]);
+
+  return (
+    <Modal onClose={onClose} width={580}>
+      <div className="border-b border-ccb-border px-6 pt-6 pb-5">
+        <div className="flex items-start justify-between">
+          <div>
+            <div className="label-eyebrow">Daily Issue Report</div>
+            <h2 className="mt-1 text-[17px] font-bold text-ccb-navy">
+              {material.code} — {material.desc}
+            </h2>
+            <p className="mt-1 text-[12px] text-ccb-muted">Daily issued quantities for {month}</p>
+          </div>
+          <button onClick={onClose} className="rounded-md p-1 text-ccb-muted hover:bg-ccb-canvas hover:text-ccb-navy">
+            <X size={18} />
+          </button>
+        </div>
+
+        <div className="mt-4 flex items-center justify-between gap-3">
+          <div className="relative">
+            <select
+              value={month}
+              onChange={(e) => setMonth(e.target.value)}
+              className="appearance-none rounded-lg border border-ccb-border bg-white pl-3 pr-9 py-2 text-[12.5px] font-semibold text-ccb-navy outline-none focus:border-ccb-blue"
+            >
+              {tabs.map((t) => (
+                <option key={t}>{t}</option>
+              ))}
+            </select>
+            <ChevronDown size={14} className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-ccb-muted" />
+          </div>
+          <div className="flex items-center gap-3 rounded-full bg-ccb-blue px-4 py-2 text-white shadow-sm">
+            <span className="text-[10px] font-semibold uppercase tracking-widest text-white/80">Total Issued</span>
+            <span className="text-[18px] font-extrabold leading-none">{isLoading ? "..." : total}</span>
+          </div>
+        </div>
+      </div>
+
+      {isLoading ? (
+        <div className="h-[250px] flex items-center justify-center text-ccb-muted text-[13px]">
+          Loading daily data from Google Sheets...
+        </div>
+      ) : (
+        <>
+          <div className="px-6 pt-5">
+            <div className="grid grid-cols-3 gap-3">
+              {[
+                { l: "Peak Day", v: peakIdx !== -1 ? `Day ${String(peakIdx + 1).padStart(2, "0")}` : "--" },
+                { l: "Active Days", v: String(active) },
+                { l: "Average / Active Day", v: avg },
+              ].map((s) => (
+                <div key={s.l} className="rounded-xl border border-ccb-border bg-ccb-canvas/60 p-3">
+                  <div className="text-[9.5px] font-semibold uppercase tracking-[0.14em] text-ccb-muted">{s.l}</div>
+                  <div className="mt-1 text-[18px] font-extrabold text-ccb-navy">{s.v}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="max-h-[340px] overflow-y-auto px-6 py-4">
+            <div className="space-y-1.5">
+              {days.map((q, i) => {
+                const dim = q === 0;
+                const pct = (q / max) * 100;
+                return (
+                  <div key={i} className={`flex items-center gap-3 rounded-lg px-2 py-1.5 ${dim ? "opacity-45" : ""}`}>
+                    <div className="w-[58px] rounded-md bg-ccb-canvas px-2 py-1 text-center text-[10px] font-bold tracking-widest text-ccb-navy">
+                      DAY {String(i + 1).padStart(2, "0")}
+                    </div>
+                    <div className="flex-1 h-3 rounded-full bg-ccb-canvas overflow-hidden">
+                      <div
+                        className="h-full rounded-full bg-gradient-to-r from-ccb-blue to-[#4B5FCB]"
+                        style={{ width: `${dim ? 0 : pct}%` }}
+                      />
+                    </div>
+                    <div className={`w-10 text-right text-[12.5px] font-bold ${dim ? "text-ccb-muted-2" : "text-ccb-navy"}`}>
+                      {q === 0 ? "—" : q}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </>
+      )}
+
+      <div className="flex items-center justify-end gap-2 border-t border-ccb-border bg-ccb-canvas/60 px-6 py-4">
+        <button onClick={onClose} className="rounded-lg border border-ccb-border bg-white px-5 py-2 text-[12.5px] font-semibold text-ccb-navy hover:bg-ccb-canvas">
+          Close
+        </button>
+      </div>
+    </Modal>
+  );
+}
+
+/* ---------------- Edit Material Dialog ---------------- */
+
+function EditMaterial({
+  material,
+  onClose,
+  onSuccess,
+}: {
+  material: Material;
+  onClose: () => void;
+  onSuccess: () => void;
+}) {
+  const [date, setDate] = useState(material.date);
+  const [code, setCode] = useState(material.code);
+  const [desc, setDesc] = useState(material.desc);
+  const [uom, setUom] = useState(material.uom);
+  const [price, setPrice] = useState(material.price === null ? "N/A" : String(material.price));
+  const [initial, setInitial] = useState(material.initial);
+  const [received, setReceived] = useState(material.received);
+  const [balance, setBalance] = useState(material.balance);
+  const [issued, setIssued] = useState(material.issued);
+  const [isSaving, setIsSaving] = useState(false);
+
+  const handleSave = async () => {
+    if (!code || !desc) {
+      alert("Code and Description are required.");
+      return;
+    }
+    setIsSaving(true);
+    try {
+      const parsedPrice = price.toLowerCase() === "n/a" || price.trim() === "" ? null : Number(price);
+      await editMaterialFn({
+        data: {
+          tabName: material.tabName,
+          rowNumber: material.rowNumber,
+          values: {
+            date,
+            code,
+            desc,
+            uom,
+            price: parsedPrice,
+            initial: Number(initial),
+            received: Number(received),
+            balance: Number(balance),
+            issued: Number(issued),
+          },
+        },
+      });
+      onSuccess();
+      onClose();
+    } catch (error) {
+      console.error("Error editing material:", error);
+      alert("Failed to edit material detail. Ensure sheet range values match.");
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  return (
+    <Modal onClose={onClose} width={680}>
+      <div className="border-b border-ccb-border px-7 pt-6 pb-5">
+        <div className="flex items-start justify-between">
+          <div>
+            <h2 className="text-[18px] font-bold text-ccb-navy">Edit Material Details</h2>
+            <p className="mt-1 text-[12px] text-ccb-muted">Update identity, pricing and stock figures for this material.</p>
+          </div>
+          <button onClick={onClose} disabled={isSaving} className="rounded-md p-1 text-ccb-muted hover:bg-ccb-canvas hover:text-ccb-navy">
+            <X size={18} />
+          </button>
+        </div>
+      </div>
+
+      <div className="px-7 pt-5">
+        <div className="rounded-2xl bg-gradient-to-br from-ccb-navy to-ccb-blue p-5 text-white">
+          <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-white/70">Material Details Editor</div>
+          <div className="mt-1 text-[15px] font-bold">Edit identity, pricing and inventory figures</div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-5 px-7 py-6">
+        <Panel title="Material Identity">
+          <Field label="Date" value={date} onChange={setDate} />
+          <Field label="Code" value={code} onChange={setCode} />
+          <Field label="Description" value={desc} onChange={setDesc} />
+          <Field label="UOM" value={uom} onChange={setUom} />
+          <Field label="Price / Unit" value={price} onChange={setPrice} />
+        </Panel>
+        <Panel title="Inventory Figures">
+          <Field label="Initial Stock" type="number" value={String(initial)} onChange={(v) => {
+            const val = Number(v) || 0;
+            setInitial(val);
+            setBalance(val + received - issued);
+          }} />
+          <Field label="Received" type="number" value={String(received)} onChange={(v) => {
+            const val = Number(v) || 0;
+            setReceived(val);
+            setBalance(initial + val - issued);
+          }} />
+          <Field label="Balance" type="number" value={String(balance)} onChange={(v) => setBalance(Number(v) || 0)} />
+          <Field label="Out Quantity" type="number" value={String(issued)} onChange={(v) => {
+            const val = Number(v) || 0;
+            setIssued(val);
+            setBalance(initial + received - val);
+          }} />
+
+          <div className="mt-2">
+            <div className="label-eyebrow">Material Image</div>
+            <div className="mt-2 flex items-center gap-3">
+              <Thumb initials={material.initials} tone={material.tone} size={54} code={material.code} />
+              <input
+                readOnly
+                value={`${code}.png`}
+                className="flex-1 rounded-lg border border-ccb-border bg-ccb-canvas/60 px-3 py-2 text-[12px] text-ccb-navy"
+              />
+              <button className="rounded-lg border border-ccb-border bg-white px-3 py-2 text-[12px] font-semibold text-ccb-navy hover:bg-ccb-canvas">
+                Browse
+              </button>
+            </div>
+          </div>
+        </Panel>
+      </div>
+
+      <div className="flex items-center justify-between gap-2 border-t border-ccb-border bg-ccb-canvas/60 px-7 py-4">
+        <div className="text-[11.5px] text-ccb-red opacity-0">Placeholder for errors</div>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={onClose}
+            disabled={isSaving}
+            className="rounded-lg border border-ccb-border bg-white px-5 py-2 text-[12.5px] font-semibold text-ccb-navy hover:bg-ccb-canvas disabled:opacity-50"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={handleSave}
+            disabled={isSaving}
+            className="rounded-lg bg-ccb-blue px-5 py-2 text-[12.5px] font-semibold text-white shadow-sm hover:bg-ccb-navy disabled:opacity-50"
+          >
+            {isSaving ? "Saving..." : "Save Changes"}
+          </button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+function Panel({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div className="rounded-2xl border border-ccb-border bg-white p-5">
+      <div className="mb-3 flex items-center gap-2">
+        <span className="h-4 w-1 rounded-sm bg-ccb-gold" />
+        <div className="text-[12.5px] font-bold text-ccb-navy">{title}</div>
+      </div>
+      <div className="space-y-3">{children}</div>
+    </div>
+  );
+}
+
+function Field({
+  label,
+  value,
+  onChange,
+  type = "text",
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  type?: string;
+}) {
+  return (
+    <label className="block">
+      <span className="label-eyebrow">{label}</span>
+      <input
+        type={type}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="mt-1 w-full rounded-lg border border-ccb-border bg-white px-3 py-2 text-[12.5px] text-ccb-navy outline-none focus:border-ccb-blue"
+      />
+    </label>
+  );
+}
+
+/* ---------------- Add Material Dialog ---------------- */
+
+function AddMaterial({
+  activeTab,
+  onClose,
+  onSuccess,
+}: {
+  activeTab: string;
+  onClose: () => void;
+  onSuccess: () => void;
+}) {
+  const [code, setCode] = useState("");
+  const [desc, setDesc] = useState("");
+  const [uom, setUom] = useState("Pcs");
+  const [price, setPrice] = useState("");
+  const [initial, setInitial] = useState("");
+  const [received, setReceived] = useState("");
+  const [isSaving, setIsSaving] = useState(false);
+
+  const handleSave = async () => {
+    if (!code || !desc) {
+      alert("Code and Description are required.");
+      return;
+    }
+    setIsSaving(true);
+    try {
+      const parsedPrice = price.toLowerCase() === "n/a" || price.trim() === "" ? null : Number(price);
+      const initVal = Number(initial) || 0;
+      const recVal = Number(received) || 0;
+      
+      await addMaterialFn({
+        data: {
+          tabName: activeTab,
+          values: {
+            date: new Date().toISOString().split("T")[0],
+            code,
+            desc,
+            uom,
+            price: parsedPrice,
+            initial: initVal,
+            received: recVal,
+            balance: initVal + recVal,
+            issued: 0,
+          },
+        },
+      });
+      onSuccess();
+      onClose();
+    } catch (error) {
+      console.error("Error adding material:", error);
+      alert("Failed to add material. Verify Google Sheets access permissions.");
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  return (
+    <Modal onClose={onClose} width={440}>
+      <div className="bg-ccb-red px-6 py-5 text-white">
+        <div className="flex items-start justify-between">
+          <div>
+            <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-white/80">New Entry</div>
+            <h2 className="mt-1 text-[18px] font-bold">Add New Material</h2>
+          </div>
+          <button onClick={onClose} disabled={isSaving} className="rounded-md p-1 text-white/80 hover:bg-white/10 hover:text-white">
+            <X size={18} />
+          </button>
+        </div>
+      </div>
+
+      <div className="space-y-4 px-6 py-5">
+        <label className="block">
+          <span className="label-eyebrow">Code #</span>
+          <input
+            type="text"
+            value={code}
+            onChange={(e) => setCode(e.target.value)}
+            placeholder="e.g. CCB1001"
+            className="mt-1 w-full rounded-lg border border-ccb-border bg-white px-3 py-2 text-[12.5px] text-ccb-navy outline-none focus:border-ccb-blue placeholder:text-ccb-muted-2"
+          />
+        </label>
+        <label className="block">
+          <span className="label-eyebrow">Item / Description</span>
+          <input
+            type="text"
+            value={desc}
+            onChange={(e) => setDesc(e.target.value)}
+            placeholder="e.g. Cutting Disc (Sunrise) 4 Inch"
+            className="mt-1 w-full rounded-lg border border-ccb-border bg-white px-3 py-2 text-[12.5px] text-ccb-navy outline-none focus:border-ccb-blue placeholder:text-ccb-muted-2"
+          />
+        </label>
+        <div>
+          <div className="label-eyebrow">Unit of Measurement (UOM)</div>
+          <div className="relative mt-1">
+            <select
+              value={uom}
+              onChange={(e) => setUom(e.target.value)}
+              className="w-full appearance-none rounded-lg border border-ccb-border bg-white px-3 py-2 pr-9 text-[12.5px] text-ccb-navy outline-none focus:border-ccb-blue"
+            >
+              {["Pcs", "Spool", "Cyl", "Pair", "Box", "Liters", "Can", "Bottle", "Sacks", "Pail"].map((u) => (
+                <option key={u}>{u}</option>
+              ))}
+            </select>
+            <ChevronDown size={14} className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-ccb-muted" />
+          </div>
+        </div>
+        <label className="block">
+          <span className="label-eyebrow">Price / Unit</span>
+          <input
+            type="text"
+            value={price}
+            onChange={(e) => setPrice(e.target.value)}
+            placeholder="e.g. 25.50"
+            className="mt-1 w-full rounded-lg border border-ccb-border bg-white px-3 py-2 text-[12.5px] text-ccb-navy outline-none focus:border-ccb-blue placeholder:text-ccb-muted-2"
+          />
+        </label>
+        <div className="grid grid-cols-2 gap-4">
+          <label className="block">
+            <span className="label-eyebrow">Initial Stock</span>
+            <input
+              type="number"
+              value={initial}
+              onChange={(e) => setInitial(e.target.value)}
+              placeholder="0"
+              className="mt-1 w-full rounded-lg border border-ccb-border bg-white px-3 py-2 text-[12.5px] text-ccb-navy outline-none focus:border-ccb-blue placeholder:text-ccb-muted-2"
+            />
+          </label>
+          <label className="block">
+            <span className="label-eyebrow">Received</span>
+            <input
+              type="number"
+              value={received}
+              onChange={(e) => setReceived(e.target.value)}
+              placeholder="0"
+              className="mt-1 w-full rounded-lg border border-ccb-border bg-white px-3 py-2 text-[12.5px] text-ccb-navy outline-none focus:border-ccb-blue placeholder:text-ccb-muted-2"
+            />
+          </label>
+        </div>
+
+        <div>
+          <div className="label-eyebrow">Material Image</div>
+          <div className="mt-1 flex gap-2">
+            <input
+              readOnly
+              placeholder="No image selected"
+              className="flex-1 rounded-lg border border-ccb-border bg-ccb-canvas/60 px-3 py-2 text-[12px] text-ccb-muted"
+            />
+            <button className="flex items-center gap-1 rounded-lg bg-ccb-blue px-3 py-2 text-[12px] font-semibold text-white hover:bg-ccb-navy">
+              <Upload size={13} /> Browse
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div className="flex items-center justify-end gap-2 border-t border-ccb-border bg-ccb-canvas/60 px-6 py-4">
+        <button
+          onClick={onClose}
+          disabled={isSaving}
+          className="rounded-lg border border-ccb-border bg-white px-5 py-2 text-[12.5px] font-semibold text-ccb-navy hover:bg-ccb-canvas disabled:opacity-50"
+        >
+          Cancel
+        </button>
+        <button
+          onClick={handleSave}
+          disabled={isSaving}
+          className="rounded-lg bg-ccb-blue px-5 py-2 text-[12.5px] font-semibold text-white shadow-sm hover:bg-ccb-navy disabled:opacity-50"
+        >
+          {isSaving ? "Saving..." : "Save Material"}
+        </button>
+      </div>
+    </Modal>
+  );
+}
+
+/* ---------------- Page Component ---------------- */
+
+function MaterialMonitoring() {
+  const queryClient = useQueryClient();
+
+  // 1. Fetch tabs list
+  const { data: tabs = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"] } = useQuery({
+    queryKey: ["tabs"],
+    queryFn: () => getTabsFn(),
+  });
+
+  // Pick current month as initial tab, or fallback to first available
+  const defaultTab = useMemo(() => {
+    const currentMonthStr = new Date().toLocaleString("en-US", { month: "short" }).toUpperCase();
+    return tabs.find((t) => t.toUpperCase() === currentMonthStr) || tabs[0] || "MAY";
+  }, [tabs]);
+
+  const [activeTab, setActiveTab] = useState("MAY");
+
+  // Sync activeTab with fetched tabs list
+  useEffect(() => {
+    if (tabs.length > 0 && activeTab === "MAY" && !tabs.includes("MAY")) {
+      setActiveTab(defaultTab);
+    } else if (tabs.length > 0 && !tabs.includes(activeTab)) {
+      setActiveTab(tabs[0]);
+    }
+  }, [tabs, defaultTab, activeTab]);
+
+  // 2. Fetch materials for active tab
+  const { data: materials = [], isLoading, error } = useQuery({
+    queryKey: ["materials", activeTab],
+    queryFn: () => getMaterialsFn({ data: activeTab }),
+  });
+
+  const [selectedCode, setSelectedCode] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
+  const [range, setRange] = useState<keyof typeof RANGE_LABEL>("Monthly");
+  const [popoverState, setPopoverState] = useState<{ code: string; x: number; y: number } | null>(null);
+  const [modal, setModal] = useState<
+    | null
+    | { type: "in" | "out" | "edit" | "report"; code: string }
+    | { type: "add" }
+  >(null);
+
+  // Provision current month tab on startup (mirrors JavaFX ensureCurrentMonthTab)
+  useEffect(() => {
+    provisionCurrentMonthFn()
+      .then((result) => {
+        if (result?.created) {
+          console.log(`[MonthProvisioner] New tab created: ${result.created}`);
+          // Refresh tabs list and switch to the newly created tab
+          queryClient.invalidateQueries({ queryKey: ["tabs"] });
+          setActiveTab(result.created);
+        }
+      })
+      .catch((err) => {
+        console.warn("[MonthProvisioner] Provisioning failed (non-critical):", err);
+      });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Set default selectedCode when materials load
+  useEffect(() => {
+    if (materials.length > 0 && !selectedCode) {
+      setSelectedCode(materials[0].code);
+    }
+  }, [materials, selectedCode]);
+
+  const filtered = useMemo(() => {
+    return materials.filter(
+      (m: any) =>
+        m.code.toLowerCase().includes(query.toLowerCase()) ||
+        m.desc.toLowerCase().includes(query.toLowerCase())
+    );
+  }, [materials, query]);
+
+  const selected = useMemo(() => {
+    return materials.find((m: any) => m.code === selectedCode) ?? null;
+  }, [materials, selectedCode]);
+
+  const modalMaterial = useMemo(() => {
+    return modal && "code" in modal ? materials.find((m: any) => m.code === modal.code) ?? null : null;
+  }, [materials, modal]);
+
+  const handleSuccess = () => {
+    queryClient.invalidateQueries({ queryKey: ["materials", activeTab] });
+  };
+
+  const handleEllipsisClick = (e: React.MouseEvent, mCode: string) => {
+    e.stopPropagation();
+    if (popoverState?.code === mCode) {
+      setPopoverState(null);
+    } else {
+      // Calculate coordinates relative to screen/parent container
+      const element = e.currentTarget as HTMLElement;
+      const rect = element.getBoundingClientRect();
+      const parentRect = element.offsetParent?.getBoundingClientRect();
+      const x = rect.left - (parentRect?.left || 0) - 260; // Offset popover left
+      const y = rect.bottom - (parentRect?.top || 0) + 5;
+      setPopoverState({ code: mCode, x, y });
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-ccb-canvas">
+      <div className="mx-auto flex min-h-screen max-w-[1400px] shadow-[0_0_0_1px_rgba(26,37,96,0.04)] bg-white">
+        <Sidebar />
+
+        <div className="flex-1 flex flex-col min-w-0">
+          <TopBar>
+            <div className="flex items-center gap-1 border-t border-ccb-border bg-[#F8FAFF] px-8 py-2 overflow-x-auto">
+              {tabs.map((tab) => (
+                <button
+                  key={tab}
+                  onClick={() => setActiveTab(tab)}
+                  className={`rounded-md px-3.5 py-1.5 text-[12px] font-bold transition-all cursor-pointer ${
+                    activeTab === tab
+                      ? "bg-ccb-blue text-white shadow-sm"
+                      : "text-ccb-muted hover:text-ccb-navy hover:bg-ccb-canvas"
+                  }`}
+                >
+                  {tab}
+                </button>
+              ))}
+            </div>
+          </TopBar>
+
+          <div className="flex-1 bg-ccb-canvas p-7 space-y-6 overflow-x-hidden">
+            {/* SELECTED context + KPIs */}
+            <div>
+              <div className="mb-3 flex items-center gap-2 text-[11px] uppercase tracking-[0.16em] text-ccb-muted">
+                <BarChart3 size={13} className="text-ccb-gold" />
+                <span className="font-semibold">Selected:</span>
+                <span className="text-ccb-navy font-bold">
+                  {selected ? `${selected.code} — ${selected.desc}` : "— No material selected"}
+                </span>
+              </div>
+
+              <div className="grid grid-cols-4 gap-4">
+                <Kpi variant="blue" label="Initial Stock" value={selected ? fmt(selected.initial) : "0"} unit={selected?.uom} />
+                <Kpi variant="blue3" label="Received" value={selected ? fmt(selected.received) : "0"} unit={selected?.uom} />
+                <Kpi variant="blue2" label="Current Balance" value={selected ? fmt(selected.balance) : "0"} unit={selected?.uom} />
+                <Kpi variant="navy" label="Issued" value={selected ? fmt(selected.issued) : "0"} unit={selected?.uom} />
+              </div>
+            </div>
+
+            {/* Toolbar + List */}
+            <div className="relative rounded-3xl border border-ccb-border bg-white p-5 shadow-sm">
+              <div className="flex flex-wrap items-center gap-3 pb-4 border-b border-ccb-border">
+                <div className="flex items-center gap-2">
+                  <span className="h-5 w-1 rounded-sm bg-ccb-gold" />
+                  <h3 className="text-[14px] font-bold text-ccb-navy">List of Materials</h3>
+                  <span className="ml-2 rounded-full bg-ccb-canvas px-2 py-0.5 text-[10.5px] font-semibold text-ccb-muted">
+                    {isLoading ? "..." : `${filtered.length} items`}
+                  </span>
+                </div>
+
+                <div className="relative ml-2 flex-1 max-w-[380px]">
+                  <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-ccb-muted-2" />
+                  <input
+                    value={query}
+                    onChange={(e) => setQuery(e.target.value)}
+                    placeholder="Search materials..."
+                    className="w-full rounded-lg border border-ccb-border bg-ccb-canvas/50 pl-9 pr-3 py-2 text-[12.5px] text-ccb-navy outline-none focus:border-ccb-blue focus:bg-white placeholder:text-ccb-muted-2"
+                  />
+                </div>
+
+                <div className="ml-auto flex items-center gap-2">
+                  <div className="relative">
+                    <select
+                      value={range}
+                      onChange={(e) => setRange(e.target.value as keyof typeof RANGE_LABEL)}
+                      className="appearance-none rounded-lg border border-ccb-border bg-white pl-3 pr-9 py-2 text-[12.5px] font-semibold text-ccb-navy outline-none focus:border-ccb-blue"
+                    >
+                      {(["Weekly", "Monthly", "Quarterly", "Yearly"] as const).map((r) => (
+                        <option key={r}>{r}</option>
+                      ))}
+                    </select>
+                    <ChevronDown size={14} className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-ccb-muted" />
+                  </div>
+
+                  <button
+                    onClick={() => setModal({ type: "add" })}
+                    className="inline-flex items-center gap-1.5 rounded-lg bg-ccb-blue px-4 py-2 text-[12.5px] font-semibold text-white shadow-sm hover:bg-ccb-navy transition cursor-pointer"
+                  >
+                    <Plus size={15} /> Add Material
+                  </button>
+                </div>
+              </div>
+
+              {/* Cards */}
+              <div className="mt-4 space-y-3">
+                {isLoading ? (
+                  <div className="rounded-2xl border border-dashed border-ccb-border bg-ccb-canvas/30 p-12 text-center text-[13px] text-ccb-muted">
+                    Loading inventory data from Google Sheets...
+                  </div>
+                ) : error ? (
+                  <div className="rounded-2xl border border-dashed border-ccb-red/30 bg-ccb-red/5 p-12 text-center text-[13px] text-ccb-red font-semibold">
+                    Failed to fetch materials: {String(error.message || error)}
+                  </div>
+                ) : filtered.length === 0 ? (
+                  <div className="rounded-2xl border border-dashed border-ccb-border bg-ccb-canvas/60 p-10 text-center text-[13px] text-ccb-muted">
+                    No materials found in this tab. Click <span className="font-semibold text-ccb-navy">+ Add Material</span> to add one.
+                  </div>
+                ) : (
+                  filtered.map((m: any) => (
+                    <MaterialCard
+                      key={m.code}
+                      m={m}
+                      selected={selectedCode === m.code}
+                      onSelect={() => setSelectedCode(m.code)}
+                      onEllipsis={(e) => handleEllipsisClick(e, m.code)}
+                      onStockIn={() => setModal({ type: "in", code: m.code })}
+                      onStockOut={() => setModal({ type: "out", code: m.code })}
+                      rangeLabel={RANGE_LABEL[range]}
+                    />
+                  ))
+                )}
+              </div>
+
+              {popoverState && (
+                <EllipsisPopover
+                  x={popoverState.x}
+                  y={popoverState.y}
+                  onClose={() => setPopoverState(null)}
+                  onOpenReport={() => {
+                    setModal({ type: "report", code: popoverState.code });
+                    setPopoverState(null);
+                  }}
+                  onEdit={() => {
+                    setModal({ type: "edit", code: popoverState.code });
+                    setPopoverState(null);
+                  }}
+                />
+              )}
+            </div>
+
+            <p className="text-center text-[11px] text-ccb-muted-2">
+              CCB Inventory Management System · Material Monitoring · Synced with Google Sheets
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* Modals */}
+      {modal?.type === "in" && modalMaterial && (
+        <StockDialog mode="in" material={modalMaterial} onClose={() => setModal(null)} onSuccess={handleSuccess} />
+      )}
+      {modal?.type === "out" && modalMaterial && (
+        <StockDialog mode="out" material={modalMaterial} onClose={() => setModal(null)} onSuccess={handleSuccess} />
+      )}
+      {modal?.type === "report" && modalMaterial && (
+        <MonthlyReport material={modalMaterial} onClose={() => setModal(null)} tabs={tabs} />
+      )}
+      {modal?.type === "edit" && modalMaterial && (
+        <EditMaterial material={modalMaterial} onClose={() => setModal(null)} onSuccess={handleSuccess} />
+      )}
+      {modal?.type === "add" && (
+        <AddMaterial activeTab={activeTab} onClose={() => setModal(null)} onSuccess={handleSuccess} />
+      )}
+    </div>
+  );
+}
