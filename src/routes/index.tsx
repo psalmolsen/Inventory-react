@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useMemo, useState, useEffect } from "react";
+import { useMemo, useState, useEffect, useRef } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   getTabsFn,
@@ -132,10 +132,10 @@ function Kpi({
   variant: "blue" | "yellow" | "blue2" | "blue3" | "navy" | "gold";
 }) {
   const styles = {
-    blue:   "bg-[#2E3EA8] text-white",   // lightest — Initial Stock
-    blue3:  "bg-[#273690] text-white",   // mid-light — Received
-    blue2:  "bg-[#202D78] text-white",   // mid-dark  — Current Balance
-    navy:   "bg-[#1A2560] text-white",   // darkest   — Issued
+    blue:   "bg-[#2E3EA8] text-white",
+    blue3:  "bg-[#273690] text-white",
+    blue2:  "bg-[#202D78] text-white",
+    navy:   "bg-[#1A2560] text-white",
     yellow: "bg-ccb-yellow text-ccb-navy",
     gold:   "bg-gradient-to-br from-[#C8861A] to-[#E9B52D] text-white",
   }[variant];
@@ -214,9 +214,9 @@ function TopBar({ children }: { children?: React.ReactNode }) {
       <div className="flex items-center justify-between px-8 py-4">
         <TitleBar title="Material Monitoring" subtitle="Track stock levels, pricing, and sheet-synced materials" />
         <div className="flex items-center gap-4">
-          <div className="text-[11px] uppercase tracking-widest text-ccb-muted">Auto-loaded from Google Sheets</div>
+          <div className="text-[11px] uppercase tracking-widest text-ccb-muted">CCB Inventory Clerk</div>
           <div className="h-9 w-9 rounded-full bg-gradient-to-br from-ccb-blue to-ccb-navy text-white flex items-center justify-center text-[12px] font-bold">
-            OP
+            AB
           </div>
         </div>
       </div>
@@ -252,8 +252,8 @@ function MaterialCard({
       onClick={onSelect}
       className={`group relative flex items-center gap-5 rounded-2xl border p-5 transition-all cursor-pointer ${
         selected
-          ? "border-ccb-gold bg-[#FFF8D6] shadow-[0_2px_0_rgba(233,181,45,0.35),0_10px_30px_-14px_rgba(26,37,96,0.25)]"
-          : "border-[#E2E8FB] bg-white hover:border-ccb-gold hover:bg-[#FFF8D6] shadow-sm"
+          ? "border-ccb-gold bg-[#FFF8D6] shadow-[0_4px_0_rgba(233,181,45,0.5),0_12px_32px_-10px_rgba(26,37,96,0.3)] scale-[1.01]"
+          : "border-[#E2E8FB] bg-white hover:border-ccb-gold/60 hover:bg-[#FFFBEA] hover:scale-[1.005] hover:shadow-md shadow-sm"
       }`}
     >
       <Thumb initials={m.initials} tone={m.tone} code={m.code} />
@@ -262,8 +262,6 @@ function MaterialCard({
         <div className="text-[15px] font-bold text-ccb-navy leading-tight truncate">{m.desc}</div>
         <div className="mt-1 flex items-center gap-3 text-[11px] uppercase tracking-[0.14em] text-ccb-muted-2">
           <span className="font-semibold">{m.code}</span>
-          <span className="h-1 w-1 rounded-full bg-ccb-muted-2/60" />
-          <span>Bal {fmt(m.balance)} {m.uom}</span>
         </div>
       </div>
 
@@ -465,7 +463,7 @@ function StockDialog({
               value={qty}
               disabled={isSaving}
               onChange={(e) => setQty(Math.max(1, Number(e.target.value) || 1))}
-              className="w-32 rounded-xl border border-ccb-border bg-white py-3 text-center text-[28px] font-extrabold text-ccb-navy outline-none focus:border-ccb-blue disabled:opacity-50"
+              className="w-32 rounded-xl border border-ccb-border bg-white py-3 text-center text-[28px] font-extrabold text-ccb-navy outline-none focus:border-ccb-blue disabled:opacity-50 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
             />
             <button
               onClick={() => setQty(qty + 1)}
@@ -649,6 +647,9 @@ function EditMaterial({
   const [balance, setBalance] = useState(material.balance);
   const [issued, setIssued] = useState(material.issued);
   const [isSaving, setIsSaving] = useState(false);
+  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleSave = async () => {
     if (!code || !desc) {
@@ -687,7 +688,7 @@ function EditMaterial({
 
   return (
     <Modal onClose={onClose} width={680}>
-      <div className="border-b border-ccb-border px-7 pt-6 pb-5">
+      <div className="border-b border-ccb-border px-7 pt-5 pb-4">
         <div className="flex items-start justify-between">
           <div>
             <h2 className="text-[18px] font-bold text-ccb-navy">Edit Material Details</h2>
@@ -699,14 +700,14 @@ function EditMaterial({
         </div>
       </div>
 
-      <div className="px-7 pt-5">
-        <div className="rounded-2xl bg-gradient-to-br from-ccb-navy to-ccb-blue p-5 text-white">
+      <div className="px-7 pt-4 pb-2">
+        <div className="rounded-xl bg-gradient-to-br from-ccb-navy to-ccb-blue px-5 py-3 text-white">
           <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-white/70">Material Details Editor</div>
-          <div className="mt-1 text-[15px] font-bold">Edit identity, pricing and inventory figures</div>
+          <div className="text-[13px] font-bold">Edit identity, pricing and inventory figures</div>
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-5 px-7 py-6">
+      <div className="grid grid-cols-2 gap-4 px-7 py-4">
         <Panel title="Material Identity">
           <Field label="Date" value={date} onChange={setDate} />
           <Field label="Code" value={code} onChange={setCode} />
@@ -735,13 +736,18 @@ function EditMaterial({
           <div className="mt-2">
             <div className="label-eyebrow">Material Image</div>
             <div className="mt-2 flex items-center gap-3">
-              <Thumb initials={material.initials} tone={material.tone} size={54} code={material.code} />
-              <input
-                readOnly
-                value={`${code}.png`}
-                className="flex-1 rounded-lg border border-ccb-border bg-ccb-canvas/60 px-3 py-2 text-[12px] text-ccb-navy"
+              {imagePreview
+                ? <img src={imagePreview} className="h-[54px] w-[54px] shrink-0 rounded-2xl object-cover border border-ccb-border" />
+                : <Thumb initials={material.initials} tone={material.tone} size={54} code={material.code} />}
+              <input readOnly value={imageFile ? imageFile.name : `${code}.jpg`}
+                className="flex-1 min-w-0 rounded-lg border border-ccb-border bg-ccb-canvas/60 px-3 py-2 text-[12px] text-ccb-navy cursor-pointer"
+                onClick={() => fileInputRef.current?.click()}
               />
-              <button className="rounded-lg border border-ccb-border bg-white px-3 py-2 text-[12px] font-semibold text-ccb-navy hover:bg-ccb-canvas">
+              <input ref={fileInputRef} type="file" accept="image/*" className="hidden"
+                onChange={(e) => { const f = e.target.files?.[0]; if (!f) return; setImageFile(f); setImagePreview(URL.createObjectURL(f)); }}
+              />
+              <button type="button" onClick={() => fileInputRef.current?.click()}
+                className="shrink-0 rounded-lg border border-ccb-border bg-white px-3 py-2 text-[12px] font-semibold text-ccb-navy hover:bg-ccb-canvas">
                 Browse
               </button>
             </div>
@@ -773,12 +779,12 @@ function EditMaterial({
 
 function Panel({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div className="rounded-2xl border border-ccb-border bg-white p-5">
-      <div className="mb-3 flex items-center gap-2">
+    <div className="rounded-2xl border border-ccb-border bg-white p-4">
+      <div className="mb-2 flex items-center gap-2">
         <span className="h-4 w-1 rounded-sm bg-ccb-gold" />
         <div className="text-[12.5px] font-bold text-ccb-navy">{title}</div>
       </div>
-      <div className="space-y-3">{children}</div>
+      <div className="space-y-2">{children}</div>
     </div>
   );
 }
@@ -1004,7 +1010,7 @@ function MaterialMonitoring() {
   useEffect(() => {
     if (tabs.length > 0 && activeTab === "MAY" && !tabs.includes("MAY")) {
       setActiveTab(defaultTab);
-    } else if (tabs.length > 0 && !tabs.includes(activeTab)) {
+    } else if (tabs.length > 0 && !tabs.includes(activeTab) && activeTab !== "ALL") {
       setActiveTab(tabs[0]);
     }
   }, [tabs, defaultTab, activeTab]);
@@ -1013,7 +1019,45 @@ function MaterialMonitoring() {
   const { data: materials = [], isLoading, error } = useQuery({
     queryKey: ["materials", activeTab],
     queryFn: () => getMaterialsFn({ data: activeTab }),
+    enabled: activeTab !== "ALL",
   });
+
+  // Fetch all tabs data when ALL is selected
+  const allTabsQueries = tabs.map((tab) => ({
+    queryKey: ["materials", tab],
+    queryFn: () => getMaterialsFn({ data: tab }),
+  }));
+  const allTabsResults = allTabsQueries.map((q) =>
+    // eslint-disable-next-line react-hooks/rules-of-hooks
+    useQuery({ ...q, enabled: activeTab === "ALL" })
+  );
+
+  const allMaterials = useMemo(() => {
+    if (activeTab !== "ALL") return materials;
+    const map = new Map<string, Material>();
+    for (const result of allTabsResults) {
+      for (const m of (result.data ?? [])) {
+        const existing = map.get(m.code);
+        if (existing) {
+          map.set(m.code, {
+            ...existing,
+            initial: existing.initial + m.initial,
+            received: existing.received + m.received,
+            balance: existing.balance + m.balance,
+            issued: existing.issued + m.issued,
+          });
+        } else {
+          map.set(m.code, { ...m });
+        }
+      }
+    }
+    return Array.from(map.values());
+  }, [activeTab, materials, allTabsResults]);
+
+  const isAllLoading = activeTab === "ALL" && allTabsResults.some((r) => r.isLoading);
+  const displayMaterials = activeTab === "ALL" ? allMaterials : materials;
+  const displayLoading = activeTab === "ALL" ? isAllLoading : isLoading;
+  const displayError = activeTab === "ALL" ? null : error;
 
   const [selectedCode, setSelectedCode] = useState<string | null>(null);
   const [query, setQuery] = useState("");
@@ -1050,20 +1094,20 @@ function MaterialMonitoring() {
   }, [materials, selectedCode]);
 
   const filtered = useMemo(() => {
-    return materials.filter(
+    return displayMaterials.filter(
       (m: any) =>
         m.code.toLowerCase().includes(query.toLowerCase()) ||
         m.desc.toLowerCase().includes(query.toLowerCase())
     );
-  }, [materials, query]);
+  }, [displayMaterials, query]);
 
   const selected = useMemo(() => {
-    return materials.find((m: any) => m.code === selectedCode) ?? null;
-  }, [materials, selectedCode]);
+    return displayMaterials.find((m: any) => m.code === selectedCode) ?? null;
+  }, [displayMaterials, selectedCode]);
 
   const modalMaterial = useMemo(() => {
-    return modal && "code" in modal ? materials.find((m: any) => m.code === modal.code) ?? null : null;
-  }, [materials, modal]);
+    return modal && "code" in modal ? displayMaterials.find((m: any) => m.code === modal.code) ?? null : null;
+  }, [displayMaterials, modal]);
 
   const handleSuccess = () => {
     queryClient.invalidateQueries({ queryKey: ["materials", activeTab] });
@@ -1085,11 +1129,11 @@ function MaterialMonitoring() {
   };
 
   return (
-    <div className="min-h-screen bg-ccb-canvas">
-      <div className="mx-auto flex min-h-screen max-w-[1400px] shadow-[0_0_0_1px_rgba(26,37,96,0.04)] bg-white">
+    <div className="h-screen bg-ccb-canvas overflow-hidden">
+      <div className="flex h-full bg-white">
         <Sidebar />
 
-        <div className="flex-1 flex flex-col min-w-0">
+        <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden">
           <TopBar>
             <div className="flex items-center gap-1 border-t border-ccb-border bg-[#F8FAFF] px-8 py-2 overflow-x-auto">
               {tabs.map((tab) => (
@@ -1105,10 +1149,20 @@ function MaterialMonitoring() {
                   {tab}
                 </button>
               ))}
+              <button
+                onClick={() => setActiveTab("ALL")}
+                className={`rounded-md px-3.5 py-1.5 text-[12px] font-bold transition-all cursor-pointer ${
+                  activeTab === "ALL"
+                    ? "bg-ccb-gold text-ccb-navy shadow-sm"
+                    : "text-ccb-muted hover:text-ccb-navy hover:bg-ccb-canvas"
+                }`}
+              >
+                ALL
+              </button>
             </div>
           </TopBar>
 
-          <div className="flex-1 bg-ccb-canvas p-7 space-y-6 overflow-x-hidden">
+          <div className="flex-1 bg-ccb-canvas p-7 space-y-6 overflow-y-auto overflow-x-hidden">
             {/* SELECTED context + KPIs */}
             <div>
               <div className="mb-3 flex items-center gap-2 text-[11px] uppercase tracking-[0.16em] text-ccb-muted">
@@ -1128,13 +1182,13 @@ function MaterialMonitoring() {
             </div>
 
             {/* Toolbar + List */}
-            <div className="relative rounded-3xl border border-ccb-border bg-white p-5 shadow-sm">
+            <div className="relative rounded-3xl border border-ccb-border bg-white p-5 shadow-sm overflow-hidden">
               <div className="flex flex-wrap items-center gap-3 pb-4 border-b border-ccb-border">
                 <div className="flex items-center gap-2">
                   <span className="h-5 w-1 rounded-sm bg-ccb-gold" />
                   <h3 className="text-[14px] font-bold text-ccb-navy">List of Materials</h3>
                   <span className="ml-2 rounded-full bg-ccb-canvas px-2 py-0.5 text-[10.5px] font-semibold text-ccb-muted">
-                    {isLoading ? "..." : `${filtered.length} items`}
+                  {displayLoading ? "..." : `${filtered.length} items`}
                   </span>
                 </div>
 
@@ -1172,14 +1226,14 @@ function MaterialMonitoring() {
               </div>
 
               {/* Cards */}
-              <div className="mt-4 space-y-3">
-                {isLoading ? (
+              <div className="mt-4 space-y-3 overflow-y-auto overflow-x-hidden" style={{ maxHeight: "calc(100vh - 420px)" }}>
+                {displayLoading ? (
                   <div className="rounded-2xl border border-dashed border-ccb-border bg-ccb-canvas/30 p-12 text-center text-[13px] text-ccb-muted">
                     Loading inventory data from Google Sheets...
                   </div>
-                ) : error ? (
+                ) : displayError ? (
                   <div className="rounded-2xl border border-dashed border-ccb-red/30 bg-ccb-red/5 p-12 text-center text-[13px] text-ccb-red font-semibold">
-                    Failed to fetch materials: {String(error.message || error)}
+                    Failed to fetch materials: {String(displayError.message || displayError)}
                   </div>
                 ) : filtered.length === 0 ? (
                   <div className="rounded-2xl border border-dashed border-ccb-border bg-ccb-canvas/60 p-10 text-center text-[13px] text-ccb-muted">
