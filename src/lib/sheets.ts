@@ -2,7 +2,7 @@ import { google } from "googleapis";
 import path from "path";
 
 // Load spreadsheet configuration from .env or use defaults
-const spreadsheetId = process.env.SPREADSHEET_ID || "1zNxROdrK1ip-8bQA4PAqQoy1YNDKcKSxM76KKgXlOUs";
+const spreadsheetId = process.env.SPREADSHEET_ID!;
 const credentialsPath = process.env.GOOGLE_APPLICATION_CREDENTIALS || "./service-account.json";
 
 let sheetsClient: any = null;

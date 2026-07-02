@@ -1,0 +1,17 @@
+# Dependencies
+node_modules/
+
+# Environment & Secrets
+.env
+.env.*
+service-account.json
+
+# Build output
+dist/
+
+# Auto-generated
+.tanstack/
+routeTree.gen.ts
+
+# Logs
+*.log

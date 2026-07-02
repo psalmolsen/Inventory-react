@@ -7,10 +7,9 @@ import {
   HeadContent,
   Scripts,
 } from "@tanstack/react-router";
-import { useEffect, type ReactNode } from "react";
+import { type ReactNode } from "react";
 
 import appCss from "../styles.css?url";
-import { reportLovableError } from "../lib/lovable-error-reporting";
 
 function NotFoundComponent() {
   return (
@@ -35,12 +34,7 @@ function NotFoundComponent() {
 }
 
 function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
-  console.error(error);
   const router = useRouter();
-  useEffect(() => {
-    reportLovableError(error, { boundary: "tanstack_root_error_component" });
-  }, [error]);
-
   return (
     <div className="flex min-h-screen items-center justify-center bg-background px-4">
       <div className="max-w-md text-center">
@@ -83,12 +77,7 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { property: "og:title", content: "CCB Inventory — Material Monitoring" },
       { property: "og:description", content: "Material Monitoring and report System for Stockman Clerk" },
       { property: "og:type", content: "website" },
-      { name: "twitter:card", content: "summary_large_image" },
-      { name: "twitter:site", content: "@Lovable" },
-      { name: "twitter:title", content: "CCB Inventory — Material Monitoring" },
-      { name: "twitter:description", content: "Material Monitoring and report System for Stockman Clerk" },
-      { property: "og:image", content: "https://storage.googleapis.com/gpt-engineer-file-uploads/vL3oGLIyqcOmz3L9QKOV5p5L4Ri2/social-images/social-1782961829115-CCBLogo.webp" },
-      { name: "twitter:image", content: "https://storage.googleapis.com/gpt-engineer-file-uploads/vL3oGLIyqcOmz3L9QKOV5p5L4Ri2/social-images/social-1782961829115-CCBLogo.webp" },
+
     ],
     links: [
       {

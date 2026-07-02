@@ -749,8 +749,7 @@ function EditMaterial({
         </Panel>
       </div>
 
-      <div className="flex items-center justify-between gap-2 border-t border-ccb-border bg-ccb-canvas/60 px-7 py-4">
-        <div className="text-[11.5px] text-ccb-red opacity-0">Placeholder for errors</div>
+      <div className="flex items-center justify-end gap-2 border-t border-ccb-border bg-ccb-canvas/60 px-7 py-4">
         <div className="flex items-center gap-2">
           <button
             onClick={onClose}
