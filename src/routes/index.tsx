@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMemo, useState, useEffect, useRef } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient, useQueries } from "@tanstack/react-query";
 import {
   getTabsFn,
   getMaterialsFn,
@@ -17,15 +17,10 @@ import {
   X,
   ChevronDown,
   Minus,
-  LogOut,
   BarChart3,
-  Package,
-  Droplets,
-  Circle,
-  Boxes,
-  Factory,
   Upload,
 } from "lucide-react";
+import { Sidebar } from "../components/Sidebar";
 
 export const Route = createFileRoute("/")({
   component: MaterialMonitoring,
@@ -155,58 +150,6 @@ function Kpi({
 }
 
 /* ---------------- Sidebar & Topbar ---------------- */
-
-const NAV = [
-  { label: "Material Monitoring", icon: Package, active: true },
-  { label: "CNF Monitoring", icon: Droplets, active: false },
-  { label: "O-Ring Monitoring", icon: Circle, active: false },
-  { label: "Pellets L-Sales", icon: Boxes, active: false },
-  { label: "Station Consumption", icon: Factory, active: false },
-];
-
-function Sidebar() {
-  return (
-    <aside className="w-[220px] shrink-0 bg-ccb-navy text-white flex flex-col">
-      <div className="px-5 pt-5 pb-6 border-b border-white/10">
-        <div className="flex items-center gap-3">
-          <div className="h-11 w-11 rounded-lg border-2 border-ccb-red flex items-center justify-center shadow-md overflow-hidden bg-white">
-            <img
-              src="/CCBLogo.png"
-              alt="CCB Logo"
-              className="h-full w-full object-contain"
-            />
-          </div>
-          <div className="leading-tight">
-            <div className="text-[13px] font-bold">CCB Inventory</div>
-            <div className="text-[10px] uppercase tracking-[0.14em] text-white/60">Management System</div>
-          </div>
-        </div>
-      </div>
-
-      <nav className="flex-1 py-4">
-        {NAV.map(({ label, icon: Icon, active }) => (
-          <button
-            key={label}
-            className={`relative w-full text-left flex items-center gap-3 px-5 py-3 text-[12.5px] transition-colors ${
-              active ? "text-white bg-white/[0.06] font-semibold" : "text-white/70 hover:text-white hover:bg-white/[0.04]"
-            }`}
-          >
-            {active && <span className="absolute left-0 top-0 bottom-0 w-[3px] bg-ccb-gold" />}
-            <Icon size={16} strokeWidth={2} className={active ? "text-ccb-gold" : "text-white/60"} />
-            <span>{label}</span>
-          </button>
-        ))}
-      </nav>
-
-      <div className="p-4 border-t border-white/10">
-        <button className="w-full flex items-center gap-2 px-3 py-2 rounded-md text-[12.5px] text-ccb-red/90 hover:bg-white/[0.04] hover:text-ccb-red transition-colors">
-          <LogOut size={15} />
-          Logout
-        </button>
-      </div>
-    </aside>
-  );
-}
 
 function TopBar({ children }: { children?: React.ReactNode }) {
   return (
@@ -1023,14 +966,13 @@ function MaterialMonitoring() {
   });
 
   // Fetch all tabs data when ALL is selected
-  const allTabsQueries = tabs.map((tab) => ({
-    queryKey: ["materials", tab],
-    queryFn: () => getMaterialsFn({ data: tab }),
-  }));
-  const allTabsResults = allTabsQueries.map((q) =>
-    // eslint-disable-next-line react-hooks/rules-of-hooks
-    useQuery({ ...q, enabled: activeTab === "ALL" })
-  );
+  const allTabsResults = useQueries({
+    queries: tabs.map((tab) => ({
+      queryKey: ["materials", tab],
+      queryFn: () => getMaterialsFn({ data: tab }),
+      enabled: activeTab === "ALL",
+    })),
+  });
 
   const allMaterials = useMemo(() => {
     if (activeTab !== "ALL") return materials;
