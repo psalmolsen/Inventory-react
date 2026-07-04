@@ -37,7 +37,7 @@ function CNFMonitoring() {
   const qc = useQueryClient();
   const [search, setSearch] = useState("");
   const [activePeriod, setActivePeriod] = useState("");
-  const [range, setRange] = useState<"Monthly" | "Yearly">("Monthly");
+
   const [selectedBrandId, setSelectedBrandId] = useState("");
   const [selectedItemId, setSelectedItemId] = useState("");
   const [modal, setModal] = useState<Modal>(null);
@@ -147,19 +147,11 @@ function CNFMonitoring() {
                     currentTab === t ? "border-ccb-gold text-ccb-gold" : "border-transparent text-ccb-muted hover:text-ccb-navy"
                   }`}>{t}</button>
               ))}
-              <div className="ml-auto flex items-center rounded-full bg-ccb-border p-1">
-                {(["Monthly", "Yearly"] as const).map((r) => (
-                  <button key={r} onClick={() => setRange(r)}
-                    className={`rounded-full px-3 py-1 text-[10px] font-bold uppercase tracking-wider transition-colors ${
-                      range === r ? "bg-ccb-gold text-ccb-navy shadow-sm" : "text-ccb-muted"
-                    }`}>{r}</button>
-                ))}
-              </div>
             </div>
           </div>
 
           {/* Content */}
-          <div className="flex-1 overflow-y-auto p-8 bg-ccb-canvas space-y-6">
+          <div className="flex-1 p-8 bg-ccb-canvas space-y-6">
 
             {isLoading ? (
               <div className="flex items-center justify-center h-40">
@@ -201,7 +193,7 @@ function CNFMonitoring() {
                             className="w-full rounded-md border border-ccb-border bg-white py-2 pl-10 pr-3 text-xs placeholder:text-ccb-muted focus:outline-none focus:ring-1 focus:ring-ccb-blue" />
                         </div>
                       </div>
-                      <div className="max-h-[560px] divide-y divide-ccb-border overflow-y-auto">
+                      <div className="max-h-[560px] divide-y divide-ccb-border overflow-y-auto overflow-x-hidden">
                         {filteredBrands.map((b) => {
                           const active = b.id === selectedBrandId;
                           const cats = Array.from(new Set(b.items.map((i) => i.category)));
@@ -210,21 +202,15 @@ function CNFMonitoring() {
                               setSelectedBrandId(b.id);
                               if (b.items[0]) setSelectedItemId(`${b.items[0].tabName}-${b.items[0].rowNumber}`);
                             }}
-                              className={`group w-full border-r-4 p-5 text-left transition-colors ${
-                                active ? "border-ccb-blue bg-ccb-canvas/60" : "border-transparent hover:bg-ccb-canvas/40"
+                              className={`group w-full border-r-4 p-5 text-left transition-all ${
+                                active
+                                  ? "border-ccb-gold bg-[#FFF8D6] shadow-[0_4px_0_rgba(233,181,45,0.5),0_12px_32px_-10px_rgba(26,37,96,0.3)] scale-[1.01]"
+                                  : "border-transparent hover:border-ccb-gold/60 hover:bg-[#FFFBEA] hover:shadow-md"
                               } ${b.status === "legacy" ? "opacity-60" : ""}`}>
                               <div className="mb-1 flex items-start justify-between gap-2">
                                 <h3 className={`text-sm font-bold ${active ? "text-ccb-navy" : "text-ccb-navy/80"}`}>{b.name}</h3>
-                                <span className={`shrink-0 rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider ${
-                                  active ? "bg-ccb-blue/10 text-ccb-blue" : "bg-ccb-border text-ccb-muted"
-                                }`}>{b.items.length} items</span>
                               </div>
-                              <p className="mb-3 text-[11px] text-ccb-muted">{cats.join(" · ")}</p>
-                              <div className="flex gap-1">
-                                {cats.map((_, i) => (
-                                  <span key={i} className={`h-1 flex-1 rounded-full ${active ? "bg-ccb-blue" : "bg-ccb-border"}`} />
-                                ))}
-                              </div>
+                              <p className="text-[11px] text-ccb-muted">{cats.join(" · ")}</p>
                             </button>
                           );
                         })}
@@ -238,7 +224,7 @@ function CNFMonitoring() {
                           <h2 className="truncate text-sm font-bold text-ccb-navy">{brand.name} — Inventory Matrix</h2>
                           <span className="h-4 w-px bg-ccb-border" />
                           <span className="rounded px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider bg-ccb-border text-ccb-muted">
-                            Total: {brandTotals.balance.toLocaleString()} in balance
+                            {brandTotals.balance > 0 ? `Total: ${brandTotals.balance.toLocaleString()} in balance` : ""}
                           </span>
                           <span className="rounded px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider bg-ccb-gold/15 text-ccb-navy">
                             {uniqueCategories.length} categories
@@ -248,7 +234,7 @@ function CNFMonitoring() {
                           <Plus className="size-3.5" /> Bulk update
                         </button>
                       </div>
-                      <div className="max-h-[560px] overflow-y-auto p-6">
+                      <div className="p-6">
                         <CnfCategoryGrid
                           categories={categories}
                           selectedItemId={selectedItemId}
@@ -391,7 +377,7 @@ function CategorySection({ category, items, selectedItemId, onSelect, onStockIn,
           </div>
         </div>
         <span className="shrink-0 text-[10px] font-bold uppercase tracking-wider text-ccb-muted">
-          {total.toLocaleString()} in balance
+          {total > 0 ? `${total.toLocaleString()} in balance` : ""}
         </span>
       </div>
       <div className="overflow-hidden rounded-lg ring-1 ring-ccb-border">
@@ -399,20 +385,11 @@ function CategorySection({ category, items, selectedItemId, onSelect, onStockIn,
           const id = `${item.tabName}-${item.rowNumber}`;
           return (
             <div key={id} onClick={() => onSelect(id)}
-              className={`grid cursor-pointer grid-cols-[7rem_minmax(0,1fr)_auto] items-center gap-6 border-t border-ccb-border p-4 first:border-t-0 transition-colors ${
+              className={`grid cursor-pointer grid-cols-[minmax(0,1fr)_auto] items-center gap-6 border-t border-ccb-border p-4 first:border-t-0 transition-colors ${
                 selectedItemId === id ? "bg-ccb-blue/5 ring-1 ring-inset ring-ccb-blue/40" : idx % 2 === 1 ? "bg-ccb-canvas/30" : "bg-white"
               }`}>
               <div className="min-w-0">
                 <p className="text-xs font-bold text-ccb-navy">{item.variant}</p>
-                <p className="text-[10px] text-ccb-muted">{item.uom}</p>
-              </div>
-              <div className="grid min-w-0 grid-cols-2 gap-6 sm:grid-cols-3">
-                <div><p className="text-[10px] font-bold uppercase tracking-wider text-ccb-muted">Received</p>
-                  <p className="text-xs font-semibold text-ccb-navy">{item.inQuantity.toLocaleString()}</p></div>
-                <div><p className="text-[10px] font-bold uppercase tracking-wider text-ccb-muted">Issued</p>
-                  <p className="text-xs font-semibold text-ccb-red">−{item.outQuantity.toLocaleString()}</p></div>
-                <div><p className="text-[10px] font-bold uppercase tracking-wider text-ccb-muted">Balance</p>
-                  <p className="text-xs font-semibold text-ccb-navy">{item.currentBalance.toLocaleString()}</p></div>
               </div>
               <div className="flex shrink-0 items-center gap-2" onClick={(e) => e.stopPropagation()}>
                 <button onClick={() => onStockIn(item)}

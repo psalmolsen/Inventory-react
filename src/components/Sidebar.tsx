@@ -4,7 +4,7 @@ import { Package, Droplets, Circle, Boxes, Factory, LogOut } from "lucide-react"
 const NAV = [
   { label: "Material Monitoring", icon: Package, to: "/" },
   { label: "CNF Monitoring", icon: Droplets, to: "/cnf" },
-  { label: "O-Ring Monitoring", icon: Circle, to: "#" },
+  { label: "O-Ring Monitoring", icon: Circle, to: "/oring" },
   { label: "Pellets L-Sales", icon: Boxes, to: "#" },
   { label: "Station Consumption", icon: Factory, to: "#" },
 ] as const;
