@@ -12,4 +12,17 @@ export default defineConfig({
     // nitro/vite builds from this
     server: { entry: "server" },
   },
+  vite: {
+    ssr: {
+      noExternal: ['react-is', 'recharts'],
+    },
+    optimizeDeps: {
+      include: ['react-is', 'recharts'],
+    },
+    resolve: {
+      alias: {
+        'react-is': 'react-is/cjs/react-is.development.js',
+      },
+    },
+  },
 });
