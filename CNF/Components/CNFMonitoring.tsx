@@ -48,6 +48,14 @@ const BRANDS: Brand[] = [
     status: "primary",
     categories: [
       {
+        id: "rapid-nameplate",
+        name: "Nameplate",
+        code: "CNF-N200",
+        variants: [
+          { id: "r-n-univ", weight: "Universal", label: "Stamped — all sizes", received: 810, issued: 640, balance: 170, price: 32 },
+        ],
+      },
+      {
         id: "rapid-collar",
         name: "Collar",
         code: "CNF-C100",
@@ -55,16 +63,6 @@ const BRANDS: Brand[] = [
           { id: "r-c-11", weight: "11 kgs", label: "V-Series", received: 450, issued: 312, balance: 138, price: 85 },
           { id: "r-c-22", weight: "22 kgs", label: "V-Series", received: 200, issued: 185, balance: 15, price: 145 },
           { id: "r-c-50", weight: "50 kgs", label: "Heavy Duty", received: 120, issued: 70, balance: 50, price: 260 },
-        ],
-      },
-      {
-        id: "rapid-nameplate",
-        name: "Nameplate",
-        code: "CNF-N200",
-        variants: [
-          { id: "r-n-11", weight: "11 kgs", label: "Stamped", received: 480, issued: 410, balance: 70, price: 32 },
-          { id: "r-n-22", weight: "22 kgs", label: "Stamped", received: 240, issued: 175, balance: 65, price: 44 },
-          { id: "r-n-50", weight: "50 kgs", label: "Etched", received: 90, issued: 55, balance: 35, price: 78 },
         ],
       },
       {
@@ -99,8 +97,7 @@ const BRANDS: Brand[] = [
         name: "Nameplate",
         code: "CNF-N210",
         variants: [
-          { id: "c-n-22", weight: "22 kgs", label: "Anti-Corrosive", received: 150, issued: 120, balance: 30, price: 48 },
-          { id: "c-n-50", weight: "50 kgs", label: "Anti-Corrosive", received: 60, issued: 42, balance: 18, price: 86 },
+          { id: "c-n-uni", weight: "Universal", label: "Anti-Corrosive — all sizes", received: 210, issued: 162, balance: 48, price: 62 },
         ],
       },
       {
@@ -365,15 +362,12 @@ export default function CNFMonitoring() {
                   </button>
                 </div>
 
-                <div className="max-h-[560px] space-y-8 overflow-y-auto p-6">
-                  {brand.categories.map((cat) => (
-                    <CategoryBlock
-                      key={cat.id}
-                      category={cat}
-                      selectedVariantId={selectedVariantId}
-                      onSelectVariant={setSelectedVariantId}
-                    />
-                  ))}
+                <div className="max-h-[560px] overflow-y-auto p-6">
+                  <CategoryGrid
+                    categories={brand.categories}
+                    selectedVariantId={selectedVariantId}
+                    onSelectVariant={setSelectedVariantId}
+                  />
                 </div>
               </div>
             </div>
@@ -496,6 +490,46 @@ function Tag({ children, tone }: { children: React.ReactNode; tone?: "gold" }) {
   );
 }
 
+// ─── Inventory Matrix Layout ────────────────────────────────────────────────
+// Nameplate spans full width on top; remaining categories tile in a 2-col grid.
+// Future-proof — any extra categories beyond Nameplate flow into the grid.
+function CategoryGrid({
+  categories,
+  selectedVariantId,
+  onSelectVariant,
+}: {
+  categories: Category[];
+  selectedVariantId: string;
+  onSelectVariant: (id: string) => void;
+}) {
+  const nameplate = categories.find((c) => c.name.toLowerCase() === "nameplate");
+  const rest = categories.filter((c) => c !== nameplate);
+
+  return (
+    <div className="space-y-4">
+      {nameplate && (
+        <CategoryBlock
+          category={nameplate}
+          selectedVariantId={selectedVariantId}
+          onSelectVariant={onSelectVariant}
+        />
+      )}
+      {rest.length > 0 && (
+        <div className="grid gap-4 md:grid-cols-2">
+          {rest.map((cat) => (
+            <CategoryBlock
+              key={cat.id}
+              category={cat}
+              selectedVariantId={selectedVariantId}
+              onSelectVariant={onSelectVariant}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function CategoryBlock({
   category,
   selectedVariantId,
@@ -507,11 +541,12 @@ function CategoryBlock({
 }) {
   const total = category.variants.reduce((s, v) => s + v.balance, 0);
   return (
-    <section className="space-y-3">
-      <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3">
+    <section className="overflow-hidden rounded-xl ring-1 ring-border">
+      {/* Category header */}
+      <div className="flex items-center justify-between gap-3 border-b border-border bg-muted/30 px-4 py-3">
         <div className="flex min-w-0 items-center gap-3">
-          <div className="grid size-8 shrink-0 place-items-center rounded-lg bg-muted">
-            <ChevronRight className="size-4 text-navy" />
+          <div className="grid size-7 shrink-0 place-items-center rounded-lg bg-card ring-1 ring-border">
+            <ChevronRight className="size-3.5 text-navy" />
           </div>
           <div className="min-w-0">
             <h4 className="truncate text-sm font-semibold text-navy">{category.name}</h4>
@@ -525,7 +560,8 @@ function CategoryBlock({
         </span>
       </div>
 
-      <div className="overflow-hidden rounded-lg ring-1 ring-border">
+      {/* Variants */}
+      <div className="divide-y divide-border">
         {category.variants.map((v, idx) => (
           <VariantRow
             key={v.id}
@@ -556,7 +592,7 @@ function VariantRow({
   return (
     <div
       onClick={onSelect}
-      className={`grid cursor-pointer grid-cols-[7rem_minmax(0,1fr)_auto] items-center gap-6 border-t border-border p-4 first:border-t-0 transition-colors ${
+      className={`grid cursor-pointer grid-cols-[7rem_minmax(0,1fr)_auto] items-center gap-6 p-4 transition-colors ${
         selected ? "bg-cobalt/5 ring-1 ring-inset ring-cobalt/40" : zebra ? "bg-muted/30" : "bg-card"
       }`}
     >
@@ -567,7 +603,7 @@ function VariantRow({
       </div>
 
       {/* Stats + progress */}
-      <div className="grid min-w-0 grid-cols-2 gap-6 sm:grid-cols-4">
+      <div className="grid min-w-0 grid-cols-2 gap-4 sm:grid-cols-4">
         <Stat label="Recv" value={variant.received} />
         <Stat label="Issued" value={variant.issued} tone="danger" />
         <div className="col-span-2">

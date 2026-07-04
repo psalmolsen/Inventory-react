@@ -248,17 +248,18 @@ function CNFMonitoring() {
                           <Plus className="size-3.5" /> Bulk update
                         </button>
                       </div>
-                      <div className="max-h-[560px] space-y-8 overflow-y-auto p-6">
-                        {categories.map(({ cat, items: catItems }) => (
-                          <CategorySection key={cat} category={cat} items={catItems}
-                            selectedItemId={selectedItemId} onSelect={setSelectedItemId}
-                            onStockIn={(item) => setModal({ kind: "in", item })}
-                            onStockOut={(item) => setModal({ kind: "out", item })}
-                            onEllipsis={(item, e) => {
-                              const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-                              setPopover({ item, x: rect.left - 320, y: rect.bottom + 5 });
-                            }} />
-                        ))}
+                      <div className="max-h-[560px] overflow-y-auto p-6">
+                        <CnfCategoryGrid
+                          categories={categories}
+                          selectedItemId={selectedItemId}
+                          onSelect={setSelectedItemId}
+                          onStockIn={(item) => setModal({ kind: "in", item })}
+                          onStockOut={(item) => setModal({ kind: "out", item })}
+                          onEllipsis={(item, e) => {
+                            const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                            setPopover({ item, x: rect.left - 320, y: rect.bottom + 5 });
+                          }}
+                        />
                       </div>
                     </div>
 
@@ -315,6 +316,53 @@ function CNFMonitoring() {
               <div className="mt-0.5 text-[11px] text-ccb-muted">Update variant, UOM, price and stock figures</div>
             </button>
           </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Category Grid Layout ────────────────────────────────────────────────────
+// NAME PLATE → full-width top row (single variant)
+// COLLAR + FOOT RING → side-by-side 2-col grid below
+function CnfCategoryGrid({ categories, selectedItemId, onSelect, onStockIn, onStockOut, onEllipsis }: {
+  categories: { cat: string; items: CnfItem[] }[];
+  selectedItemId: string;
+  onSelect: (id: string) => void;
+  onStockIn: (item: CnfItem) => void;
+  onStockOut: (item: CnfItem) => void;
+  onEllipsis: (item: CnfItem, e: React.MouseEvent) => void;
+}) {
+  const nameplate = categories.find((c) => c.cat === "NAME PLATE");
+  const rest = categories.filter((c) => c.cat !== "NAME PLATE");
+
+  return (
+    <div className="space-y-4">
+      {nameplate && (
+        <CategorySection
+          category={nameplate.cat}
+          items={nameplate.items}
+          selectedItemId={selectedItemId}
+          onSelect={onSelect}
+          onStockIn={onStockIn}
+          onStockOut={onStockOut}
+          onEllipsis={onEllipsis}
+        />
+      )}
+      {rest.length > 0 && (
+        <div className="grid gap-4 md:grid-cols-2">
+          {rest.map(({ cat, items }) => (
+            <CategorySection
+              key={cat}
+              category={cat}
+              items={items}
+              selectedItemId={selectedItemId}
+              onSelect={onSelect}
+              onStockIn={onStockIn}
+              onStockOut={onStockOut}
+              onEllipsis={onEllipsis}
+            />
+          ))}
         </div>
       )}
     </div>
