@@ -6,7 +6,7 @@ const NAV = [
   { label: "CNF Monitoring", icon: Droplets, to: "/cnf" },
   { label: "O-Ring Monitoring", icon: Circle, to: "/oring" },
   { label: "Pellets L-Sales", icon: Boxes, to: "/pellets" },
-  { label: "Station Consumption", icon: Factory, to: "#" },
+  { label: "Station Consumption", icon: Factory, to: "/station-consumption" },
 ] as const;
 
 export function Sidebar() {
@@ -25,35 +25,25 @@ export function Sidebar() {
       </div>
 
       <nav className="flex-1 py-4">
-        {NAV.map(({ label, icon: Icon, to }) =>
-          to === "#" ? (
-            <button
-              key={label}
-              className="relative w-full text-left flex items-center gap-3 px-5 py-3 text-[12.5px] transition-colors text-white/40 cursor-not-allowed"
-            >
-              <Icon size={16} strokeWidth={2} className="text-white/30" />
-              <span>{label}</span>
-            </button>
-          ) : (
-            <Link
-              key={label}
-              to={to}
-              className="relative w-full text-left flex items-center gap-3 px-5 py-3 text-[12.5px] transition-colors text-white/70 hover:text-white hover:bg-white/[0.04]"
-              activeProps={{
-                className:
-                  "relative w-full text-left flex items-center gap-3 px-5 py-3 text-[12.5px] transition-colors text-white bg-white/[0.06] font-semibold",
-              }}
-            >
-              {({ isActive }) => (
-                <>
-                  {isActive && <span className="absolute left-0 top-0 bottom-0 w-[3px] bg-ccb-gold" />}
-                  <Icon size={16} strokeWidth={2} className={isActive ? "text-ccb-gold" : "text-white/60"} />
-                  <span>{label}</span>
-                </>
-              )}
-            </Link>
-          )
-        )}
+        {NAV.map(({ label, icon: Icon, to }) => (
+          <Link
+            key={label}
+            to={to}
+            className="relative w-full text-left flex items-center gap-3 px-5 py-3 text-[12.5px] transition-colors text-white/70 hover:text-white hover:bg-white/[0.04]"
+            activeProps={{
+              className:
+                "relative w-full text-left flex items-center gap-3 px-5 py-3 text-[12.5px] transition-colors text-white bg-white/[0.06] font-semibold",
+            }}
+          >
+            {({ isActive }) => (
+              <>
+                {isActive && <span className="absolute left-0 top-0 bottom-0 w-[3px] bg-ccb-gold" />}
+                <Icon size={16} strokeWidth={2} className={isActive ? "text-ccb-gold" : "text-white/60"} />
+                <span>{label}</span>
+              </>
+            )}
+          </Link>
+        ))}
       </nav>
 
       <div className="p-4 border-t border-white/10">
