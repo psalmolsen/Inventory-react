@@ -43,7 +43,10 @@ function CNFMonitoring() {
   const [modal, setModal] = useState<Modal>(null);
   const [popover, setPopover] = useState<Popover>(null);
 
-  const { data: tabs = [] } = useQuery({ queryKey: ["cnf-tabs"], queryFn: () => getCnfTabsFn() });
+  const { data: tabs = [], error: tabsError } = useQuery({
+    queryKey: ["cnf-tabs"],
+    queryFn: () => getCnfTabsFn(),
+  });
 
   const defaultTab = useMemo(() => {
     if (!tabs.length) return "";
@@ -55,7 +58,7 @@ function CNFMonitoring() {
 
   useEffect(() => { if (defaultTab && !activePeriod) setActivePeriod(defaultTab); }, [defaultTab, activePeriod]);
 
-  const { data: items = [], isLoading } = useQuery({
+  const { data: items = [], isLoading, error: itemsError } = useQuery({
     queryKey: ["cnf-items", currentTab],
     queryFn: () => getCnfItemsFn({ data: currentTab }),
     enabled: !!currentTab,
@@ -103,6 +106,8 @@ function CNFMonitoring() {
   const uniqueCategories = useMemo(() =>
     brand ? Array.from(new Set(brand.items.map((i) => i.category))) : [],
   [brand]);
+
+  const displayError = tabsError ?? itemsError;
 
   const stockIn = useMutation({
     mutationFn: (d: { tabName: string; rowNumber: number; qty: number }) => cnfStockInFn({ data: d }),
@@ -156,6 +161,12 @@ function CNFMonitoring() {
             {isLoading ? (
               <div className="flex items-center justify-center h-40">
                 <p className="text-ccb-muted animate-pulse">Loading CNF data...</p>
+              </div>
+            ) : displayError ? (
+              <div className="flex items-center justify-center h-40">
+                <p className="max-w-2xl text-center text-ccb-red">
+                  Failed to load CNF data: {displayError.message}
+                </p>
               </div>
             ) : !brand ? (
               <div className="flex items-center justify-center h-40">
