@@ -1,10 +1,17 @@
 import React, { useMemo, useState } from "react";
 import {
-  BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
+  LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend,
   PieChart, Pie, Cell, CartesianGrid,
 } from "recharts";
+import { useQuery } from "@tanstack/react-query";
 import { Sidebar } from "./Sidebar";
 import { AddConsumptionDialog, type Material } from "./AddConsumptionDialog";
+import {
+  getStationConsumptionRecordsFn,
+  addStationConsumptionRecordFn,
+  getMaterialsFromCurrentMonthFn,
+} from "../lib/station-consumption-server-functions";
+import { type StationConsumptionRecord, type MaterialItem } from "../lib/station-consumption-types";
 
 type Record = {
   id: string;
@@ -18,7 +25,7 @@ type Record = {
   monthKey: string;
 };
 
-const STATIONS = ["Station A", "Station B", "Station C", "Station D"];
+const STATIONS = ["Hotworks", "Painting", "Cosmetics", "CTC"];
 const MATERIALS = [
   { code: "CCB1001", name: "Cutting Disc (Sunrise) 4 Inch", uom: "PCS", price: 12, balance: 320 },
   { code: "CCB1002", name: "Grinding Disc (Sunrise) 4 Inch", uom: "PCS", price: 18, balance: 210 },
@@ -28,30 +35,22 @@ const MATERIALS = [
   { code: "CCB1006", name: "Sheet Metal 1.2mm", uom: "SHT", price: 320, balance: 26 },
 ];
 
-function seedRecords(): Record[] {
-  const out: Record[] = [];
-  const months = ["2026-01", "2026-02", "2026-03", "2026-04", "2026-05"];
-  let i = 0;
-  for (const m of months) {
-    for (let d = 0; d < 9; d++) {
-      const mat = MATERIALS[(i + d) % MATERIALS.length];
-      const st = STATIONS[(i + d) % STATIONS.length];
-      const day = String((d * 3 + 1) % 28 || 1).padStart(2, "0");
-      out.push({
-        id: `${m}-${d}-${i}`,
-        date: `${m}-${day}`,
-        station: st,
-        description: mat.name,
-        qty: 5 + ((i * 7 + d * 3) % 40),
-        uom: mat.uom,
-        signature: ["ABR", "JMD", "RPT", "LSC"][(i + d) % 4],
-        unitPrice: mat.price,
-        monthKey: m,
-      });
-      i++;
-    }
-  }
-  return out;
+// Convert StationConsumptionRecord to internal Record type
+function convertToRecord(rec: StationConsumptionRecord, index: number): Record {
+  const dateObj = new Date(rec.date);
+  const monthKey = `${dateObj.getFullYear()}-${String(dateObj.getMonth() + 1).padStart(2, "0")}`;
+  
+  return {
+    id: `${rec.date}-${index}`,
+    date: rec.date,
+    station: rec.station,
+    description: rec.description,
+    qty: rec.quantity,
+    uom: rec.uom,
+    signature: rec.signature,
+    unitPrice: rec.unitCost,
+    monthKey,
+  };
 }
 
 const PHP = new Intl.NumberFormat("en-PH", {
@@ -75,7 +74,33 @@ const COLORS = {
 const PIE_COLORS = ["#1e3a8a", "#3b82f6", "#8b5cf6", "#f59e0b", "#ef4444"];
 
 export default function StationConsumption() {
-  const [records, setRecords] = useState<Record[]>(() => seedRecords());
+  const { data: sheetRecords = [], isLoading, refetch } = useQuery({
+    queryKey: ["station-consumption-records"],
+    queryFn: () => getStationConsumptionRecordsFn(),
+  });
+
+  const { data: materialItems = [] } = useQuery({
+    queryKey: ["material-items"],
+    queryFn: () => getMaterialsFromCurrentMonthFn(),
+  });
+
+  const records = useMemo(() => 
+    sheetRecords.map((rec, idx) => convertToRecord(rec, idx)),
+    [sheetRecords]
+  );
+
+  // Convert MaterialItem to Material type for dialog
+  const materials: Material[] = useMemo(() =>
+    materialItems.map((item) => ({
+      code: item.code,
+      name: item.description,
+      uom: item.uom,
+      price: item.price,
+      balance: item.balance,
+    })),
+    [materialItems]
+  );
+
   const [search, setSearch] = useState("");
   const [station, setStation] = useState<string>("all");
   const [month, setMonth] = useState<string>("all");
@@ -109,6 +134,23 @@ export default function StationConsumption() {
     const m = new Map<string, number>();
     filtered.forEach((r) => m.set(r.station, (m.get(r.station) ?? 0) + r.qty));
     return Array.from(m, ([station, qty]) => ({ station, qty }));
+  }, [filtered]);
+
+  // Line chart data: group by date with each station as a separate line
+  const byDateByStation = useMemo(() => {
+    const dateMap = new Map<string, any>();
+    
+    filtered.forEach((r) => {
+      if (!dateMap.has(r.date)) {
+        dateMap.set(r.date, { date: r.date, Hotworks: 0, Painting: 0, Cosmetics: 0, CTC: 0 });
+      }
+      const entry = dateMap.get(r.date)!;
+      if (entry[r.station] !== undefined) {
+        entry[r.station] += r.qty;
+      }
+    });
+    
+    return Array.from(dateMap.values()).sort((a, b) => a.date.localeCompare(b.date));
   }, [filtered]);
 
   const byMaterial = useMemo(() => {
@@ -222,15 +264,27 @@ export default function StationConsumption() {
                   <AddConsumptionDialog
                     open={addOpen}
                     onOpenChange={setAddOpen}
-                    materials={MATERIALS as Material[]}
-                    onAdd={(rec) => {
-                      setRecords((prev) => [rec, ...prev]);
+                    materials={materials}
+                    onAdd={async (rec) => {
+                      const stationRecord: StationConsumptionRecord = {
+                        date: rec.date,
+                        station: rec.station,
+                        materialCode: rec.description, // Use description as identifier
+                        description: rec.description,
+                        quantity: rec.qty,
+                        uom: rec.uom,
+                        unitCost: rec.unitPrice,
+                        totalCost: rec.qty * rec.unitPrice,
+                        signature: rec.signature,
+                      };
+                      await addStationConsumptionRecordFn({ data: stationRecord });
+                      refetch();
                       setAddOpen(false);
                     }}
                   />
                   <button
                     className="h-9 w-9 rounded-md border border-ccb-border bg-white text-ccb-muted hover:bg-ccb-canvas flex items-center justify-center"
-                    onClick={() => setRecords(seedRecords())}
+                    onClick={() => refetch()}
                     title="Refresh"
                   >
                     <svg className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
@@ -300,12 +354,12 @@ export default function StationConsumption() {
                   </div>
                   <div className="mt-3 grid grid-cols-1 gap-4 lg:grid-cols-2">
                     <ChartCard
-                      title="Quantity by Station"
-                      subtitle="Total material quantity per station"
+                      title="Quantity by Station Over Time"
+                      subtitle="Daily material quantity per station"
                     >
                       <ResponsiveContainer width="100%" height={260}>
-                        <BarChart
-                          data={byStation}
+                        <LineChart
+                          data={byDateByStation}
                           margin={{ top: 8, right: 12, left: 0, bottom: 0 }}
                         >
                           <CartesianGrid
@@ -314,7 +368,7 @@ export default function StationConsumption() {
                             vertical={false}
                           />
                           <XAxis
-                            dataKey="station"
+                            dataKey="date"
                             tick={{ fontSize: 12, fill: COLORS.faint }}
                             axisLine={{ stroke: COLORS.navyTint }}
                             tickLine={false}
@@ -334,13 +388,12 @@ export default function StationConsumption() {
                               color: "#fff",
                             }}
                           />
-                          <Bar
-                            dataKey="qty"
-                            fill={COLORS.navy}
-                            radius={[6, 6, 0, 0]}
-                            maxBarSize={44}
-                          />
-                        </BarChart>
+                          <Legend />
+                          <Line type="monotone" dataKey="Hotworks" stroke={COLORS.navy} strokeWidth={2} dot={{ r: 4 }} />
+                          <Line type="monotone" dataKey="Painting" stroke={COLORS.gold} strokeWidth={2} dot={{ r: 4 }} />
+                          <Line type="monotone" dataKey="Cosmetics" stroke={COLORS.good} strokeWidth={2} dot={{ r: 4 }} />
+                          <Line type="monotone" dataKey="CTC" stroke={COLORS.warning} strokeWidth={2} dot={{ r: 4 }} />
+                        </LineChart>
                       </ResponsiveContainer>
                     </ChartCard>
 

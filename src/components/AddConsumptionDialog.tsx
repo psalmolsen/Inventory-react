@@ -4,6 +4,7 @@ export type NewConsumptionRecord = {
   id: string;
   date: string;
   station: string;
+  materialCode: string;
   description: string;
   qty: number;
   uom: string;
@@ -166,7 +167,7 @@ export function AddConsumptionDialog({
                 </div>
               </div>
 
-              <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
                 {stations.map((s) => {
                   const selected = stationCode === s.code;
                   return (
@@ -235,7 +236,7 @@ export function AddConsumptionDialog({
                     </p>
                   </div>
                 ) : (
-                  <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+                  <div className="grid grid-cols-1 gap-2">
                     {filteredMaterials.map((m) => {
                       const selected = materialCode === m.code;
                       return (
@@ -383,6 +384,7 @@ export function AddConsumptionDialog({
                     id: `${Date.now()}`,
                     date: iso,
                     station: station.name,
+                    materialCode: material.code,
                     description: material.name,
                     qty,
                     uom: material.uom,
