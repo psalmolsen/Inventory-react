@@ -73,6 +73,30 @@ const COLORS = {
 
 const PIE_COLORS = ["#1e3a8a", "#3b82f6", "#8b5cf6", "#f59e0b", "#ef4444"];
 
+// ─── KPI Card (same style as Material Monitoring) ───────────────────────────
+function CnfKpi({ label, value, unit, variant }: {
+  label: string; value: string; unit?: string;
+  variant: "shade1" | "shade2" | "shade3" | "shade4" | "shade5";
+}) {
+  const styles = {
+    shade1: "bg-[#2E3EA8] text-white",
+    shade2: "bg-[#29399A] text-white",
+    shade3: "bg-[#25348C] text-white",
+    shade4: "bg-[#202F76] text-white",
+    shade5: "bg-[#1A2560] text-white",
+  }[variant];
+  return (
+    <div className={`relative overflow-hidden rounded-2xl p-4 shadow-sm ${styles}`}>
+      <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-white/70">{label}</div>
+      <div className="mt-2 flex items-baseline gap-2">
+        <div className="text-[24px] font-extrabold leading-none">{value}</div>
+        {unit && <div className="text-[11px] font-semibold uppercase tracking-widest text-white/80">{unit}</div>}
+      </div>
+      <div className="pointer-events-none absolute -right-4 -bottom-4 h-16 w-16 rounded-full bg-white/5" />
+    </div>
+  );
+}
+
 export default function StationConsumption() {
   const { data: sheetRecords = [], isLoading, refetch } = useQuery({
     queryKey: ["station-consumption-records"],
@@ -308,35 +332,10 @@ export default function StationConsumption() {
                     </h2>
                   </div>
                   <div className="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-                    <StatCard
-                      accent={COLORS.navy}
-                      label="TOTAL COST"
-                      value={PHP.format(totalCost)}
-                      context="overall consumption value"
-                      badge="All stations"
-                    />
-                    <StatCard
-                      accent={COLORS.navyLight}
-                      label="TOP STATION"
-                      value={topStation}
-                      context="highest consumption"
-                      badge="Most active"
-                    />
-                    <StatCard
-                      accent={COLORS.gold}
-                      label="TOP MATERIAL"
-                      value={topMaterial}
-                      context="most used material"
-                      badge="Highest usage"
-                      truncate
-                    />
-                    <StatCard
-                      accent={COLORS.warning}
-                      label="TOTAL RECORDS"
-                      value={filtered.length.toLocaleString()}
-                      context="consumption entries"
-                      badge="All time"
-                    />
+                    <CnfKpi variant="shade1" label="Total Cost" value={PHP.format(totalCost)} />
+                    <CnfKpi variant="shade2" label="Top Station" value={topStation} />
+                    <CnfKpi variant="shade3" label="Top Material" value={topMaterial} />
+                    <CnfKpi variant="shade4" label="Total Records" value={filtered.length.toLocaleString()} />
                   </div>
                 </section>
 

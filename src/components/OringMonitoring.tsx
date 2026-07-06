@@ -43,6 +43,30 @@ const COLORS = {
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const PAGE_SIZE = 8;
 
+// ─── KPI Card (same style as Material Monitoring) ───────────────────────────
+function CnfKpi({ label, value, unit, variant }: {
+  label: string; value: string; unit?: string;
+  variant: "shade1" | "shade2" | "shade3" | "shade4" | "shade5";
+}) {
+  const styles = {
+    shade1: "bg-[#2E3EA8] text-white",
+    shade2: "bg-[#29399A] text-white",
+    shade3: "bg-[#25348C] text-white",
+    shade4: "bg-[#202F76] text-white",
+    shade5: "bg-[#1A2560] text-white",
+  }[variant];
+  return (
+    <div className={`relative overflow-hidden rounded-2xl p-4 shadow-sm ${styles}`}>
+      <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-white/70">{label}</div>
+      <div className="mt-2 flex items-baseline gap-2">
+        <div className="text-[24px] font-extrabold leading-none">{value}</div>
+        {unit && <div className="text-[11px] font-semibold uppercase tracking-widest text-white/80">{unit}</div>}
+      </div>
+      <div className="pointer-events-none absolute -right-4 -bottom-4 h-16 w-16 rounded-full bg-white/5" />
+    </div>
+  );
+}
+
 type StatusTone = "good" | "warn" | "reject";
 
 function useCountUp(value: number, duration = 700) {
@@ -547,56 +571,10 @@ export default function OringMonitoring() {
         </div>
 
         <div className="orm-kpi-row">
-          <StatCard
-            label="Total Valves Repaired"
-            value={totalDisplay.toLocaleString()}
-            change={selectedMonth === "All" ? <span className="orm-chip good">All-time total</span> : <TrendBadge pct={totalPct} />}
-            icon={Icon.Wrench}
-            tone="navy"
-          />
-          <StatCard
-            label="Good"
-            value={goodDisplay.toLocaleString()}
-            change={selectedMonth === "All" ? <span className="orm-chip good">All-time total</span> : <span className="orm-chip good">{Math.abs(goodPct).toFixed(1)}% vs previous month</span>}
-            icon={Icon.Check2}
-            tone="good"
-          />
-          <StatCard
-            label="Reject"
-            value={rejectDisplay.toLocaleString()}
-            change={selectedMonth === "All" ? <span className="orm-chip reject">All-time total</span> : <span className="orm-chip reject">{Math.abs(rejectPct).toFixed(1)}% vs previous month</span>}
-            icon={Icon.Reject}
-            tone="reject"
-          />
-          <div className="orm-stat orm-stat-ring">
-            <div className="orm-stat-top">
-              <div className="orm-stat-label">Quality Efficiency</div>
-              <div className="orm-stat-icon gold">
-                <Icon.Target />
-              </div>
-            </div>
-            <div className="orm-ring-wrap">
-              <svg width="72" height="72" viewBox="0 0 58 58">
-                <circle cx="29" cy="29" r="24" fill="none" stroke={COLORS.navySoft} strokeWidth="7" />
-                <circle
-                  cx="29"
-                  cy="29"
-                  r="24"
-                  fill="none"
-                  stroke={COLORS.good}
-                  strokeWidth="7"
-                  strokeLinecap="round"
-                  strokeDasharray={150.8}
-                  strokeDashoffset={150.8 * (1 - passRate / 100)}
-                  transform="rotate(-90 29 29)"
-                />
-              </svg>
-              <div>
-                <div className="orm-ring-num">{passRate.toFixed(1)}%</div>
-                <div className="orm-ring-cap">Pass rate this period</div>
-              </div>
-            </div>
-          </div>
+          <CnfKpi variant="shade1" label="Total Valves Repaired" value={totalDisplay.toLocaleString()} />
+          <CnfKpi variant="shade2" label="Good" value={goodDisplay.toLocaleString()} />
+          <CnfKpi variant="shade3" label="Reject" value={rejectDisplay.toLocaleString()} />
+          <CnfKpi variant="shade4" label="Quality Efficiency" value={passRate.toFixed(1)} unit="%" />
         </div>
 
               {isLoading ? (

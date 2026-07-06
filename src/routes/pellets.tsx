@@ -101,30 +101,26 @@ function inferMonthOptions(records: PelletRecord[]) {
   return Array.from(seen.entries()).sort(([a], [b]) => a.localeCompare(b)).map(([key, label]) => ({ key, label }));
 }
 
-function KpiCard({
-  label,
-  value,
-  unit,
-}: {
-  label: string;
-  value: string;
-  unit?: string;
+// ─── KPI Card (same style as Material Monitoring) ───────────────────────────
+function CnfKpi({ label, value, unit, variant }: {
+  label: string; value: string; unit?: string;
+  variant: "shade1" | "shade2" | "shade3" | "shade4" | "shade5";
 }) {
+  const styles = {
+    shade1: "bg-[#2E3EA8] text-white",
+    shade2: "bg-[#29399A] text-white",
+    shade3: "bg-[#25348C] text-white",
+    shade4: "bg-[#202F76] text-white",
+    shade5: "bg-[#1A2560] text-white",
+  }[variant];
   return (
-    <div className="relative overflow-hidden rounded-xl bg-navy p-5 text-navy-foreground">
-      <div className="pointer-events-none absolute -right-6 -top-6 h-24 w-24 rounded-full bg-white/5" />
-      <div className="pointer-events-none absolute -right-10 top-6 h-16 w-16 rounded-full bg-white/5" />
-      <div className="text-[10px] font-semibold uppercase tracking-[0.15em] text-navy-foreground/75">
-        {label}
+    <div className={`relative overflow-hidden rounded-2xl p-4 shadow-sm ${styles}`}>
+      <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-white/70">{label}</div>
+      <div className="mt-2 flex items-baseline gap-2">
+        <div className="text-[24px] font-extrabold leading-none">{value}</div>
+        {unit && <div className="text-[11px] font-semibold uppercase tracking-widest text-white/80">{unit}</div>}
       </div>
-      <div className="mt-4 flex items-baseline gap-2">
-        <span className="text-4xl font-extrabold tabular-nums">{value}</span>
-        {unit ? (
-          <span className="text-xs font-medium uppercase tracking-wider text-navy-foreground/70">
-            {unit}
-          </span>
-        ) : null}
-      </div>
+      <div className="pointer-events-none absolute -right-4 -bottom-4 h-16 w-16 rounded-full bg-white/5" />
     </div>
   );
 }
@@ -309,13 +305,12 @@ function PelletsDashboard() {
               </div>
             ) : (
               <>
-                <section className="mb-6 grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-6">
-                  <KpiCard label="Good Shots" value={totalGood.toLocaleString()} unit="shots" />
-                  <KpiCard label="Rejects" value={totalReject.toLocaleString()} unit="shots" />
-                  <KpiCard label="Reject %" value={totalShots ? ((totalReject / totalShots) * 100).toFixed(1) : "0.0"} unit="%" />
-                  <KpiCard label="Total Shots" value={totalShots.toLocaleString()} unit="shots" />
-                  <KpiCard label="Top Brand" value={topBrand} />
-                  <KpiCard label="Efficiency" value={passRate.toFixed(1)} unit="%" />
+                <section className="mb-6 grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-5">
+                  <CnfKpi variant="shade1" label="Good Shots" value={totalGood.toLocaleString()} unit="shots" />
+                  <CnfKpi variant="shade2" label="Rejects" value={totalReject.toLocaleString()} unit="shots" />
+                  <CnfKpi variant="shade3" label="Reject %" value={totalShots ? ((totalReject / totalShots) * 100).toFixed(1) : "0.0"} unit="%" />
+                  <CnfKpi variant="shade4" label="Efficiency" value={passRate.toFixed(1)} unit="%" />
+                  <CnfKpi variant="shade5" label="Total Shots" value={totalShots.toLocaleString()} unit="shots" />
                 </section>
 
                 <section className="mb-6 grid gap-4 lg:grid-cols-2">

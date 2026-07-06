@@ -103,7 +103,7 @@ function parseTimeSort(value: string): number {
   if (meridiem === "am" && hour === 12) hour = 0;
 
   return hour * 60 + minute;
-}
+} 
 
 function isSkipRow(row: any[]) {
   const joined = row.map((cell) => String(cell ?? "").trim().toLowerCase()).join(" ");
