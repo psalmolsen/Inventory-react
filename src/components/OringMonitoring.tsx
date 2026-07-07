@@ -519,11 +519,11 @@ export default function OringMonitoring() {
   const displayError = error instanceof Error ? error : null;
 
   return (
-    <div className="h-screen bg-ccb-canvas overflow-hidden">
-      <div className="flex h-full bg-white">
+    <div className="min-h-screen bg-ccb-canvas">
+      <div className="flex min-h-screen bg-white">
         <Sidebar />
-        <div className="flex-1 min-w-0 h-full overflow-hidden">
-          <div className="orm-page h-full overflow-y-auto">
+        <div className="flex-1 min-h-screen lg:pl-0 pl-0">
+          <div className="orm-page">
             <SectionTitle
               title="Sheet-backed repair tracking for O-Ring monitoring"
               subtitle="Every chart and row below is pulled from the Google Sheet, so the dashboard now reflects the real records instead of mock data."

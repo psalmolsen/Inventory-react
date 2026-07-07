@@ -46,11 +46,80 @@ type Material = {
 };
 
 const RANGE_LABEL: Record<string, string> = {
+  All: "ALL TIME VALUE",
   Weekly: "THIS WEEK VALUE",
   Monthly: "THIS MONTH VALUE",
   Quarterly: "THIS QUARTER VALUE",
   Yearly: "THIS YEAR VALUE",
 };
+
+// Calculate date range based on selected filter
+function getDateRange(range: keyof typeof RANGE_LABEL): { start: Date; end: Date } {
+  const now = new Date();
+  const end = new Date(now);
+  end.setHours(23, 59, 59, 999);
+  
+  const start = new Date(now);
+  start.setHours(0, 0, 0, 0);
+
+  switch (range) {
+    case "All":
+      // Show all data - start from a very early date
+      start.setFullYear(2000, 0, 1);
+      break;
+    case "Weekly":
+      // Start from Monday of current week
+      const dayOfWeek = now.getDay();
+      const daysFromMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1; // Sunday = 0, Monday = 1
+      start.setDate(now.getDate() - daysFromMonday);
+      break;
+    case "Monthly":
+      // Start from 1st day of current month
+      start.setDate(1);
+      break;
+    case "Quarterly":
+      // Start from 1st day of current quarter
+      const currentMonth = now.getMonth();
+      const quarterStartMonth = Math.floor(currentMonth / 3) * 3;
+      start.setMonth(quarterStartMonth, 1);
+      break;
+    case "Yearly":
+      // Start from Jan 1st of current year
+      start.setMonth(0, 1);
+      break;
+  }
+
+  return { start, end };
+}
+
+// Filter dailyOut array based on date range
+function filterDailyOutByRange(dailyOut: number[], range: keyof typeof RANGE_LABEL): number {
+  const { start, end } = getDateRange(range);
+  
+  // dailyOut is indexed by day of month (1-31)
+  // We need to sum values for days within the date range
+  let total = 0;
+  
+  const startDay = start.getDate();
+  const endDay = end.getDate();
+  const startMonth = start.getMonth();
+  const endMonth = end.getMonth();
+  const startYear = start.getFullYear();
+  const endYear = end.getFullYear();
+  
+  // For simplicity, we'll assume dailyOut is for the current month
+  // A more complete implementation would need to handle multi-month ranges
+  for (let i = 0; i < dailyOut.length; i++) {
+    const day = i + 1; // dailyOut is 0-indexed, days are 1-indexed
+    const currentDate = new Date(startYear, startMonth, day);
+    
+    if (currentDate >= start && currentDate <= end) {
+      total += dailyOut[i] || 0;
+    }
+  }
+  
+  return total;
+}
 
 const peso = (n: number | null) =>
   n === null ? "N/A" : `₱ ${n.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -62,7 +131,6 @@ const fmt = (n: number) => n.toLocaleString("en-PH");
 function TitleBar({ title, subtitle }: { title: string; subtitle?: string }) {
   return (
     <div className="flex items-center gap-3">
-      <span className="block h-[22px] w-[4px] rounded-sm bg-ccb-gold" />
       <div>
         <h1 className="text-[18px] font-bold leading-tight text-ccb-navy">{title}</h1>
         {subtitle ? <p className="text-[12px] text-ccb-muted">{subtitle}</p> : null}
@@ -179,6 +247,7 @@ function MaterialCard({
   onStockIn,
   onStockOut,
   rangeLabel,
+  range,
 }: {
   m: Material;
   selected: boolean;
@@ -187,16 +256,18 @@ function MaterialCard({
   onStockIn: () => void;
   onStockOut: () => void;
   rangeLabel: string;
+  range: keyof typeof RANGE_LABEL;
 }) {
-  const monthValue = m.price === null ? null : m.price * m.issued;
+  const filteredIssued = filterDailyOutByRange(m.dailyOut, range);
+  const monthValue = m.price === null ? null : m.price * filteredIssued;
 
   return (
     <div
       onClick={onSelect}
-      className={`group relative flex items-center gap-5 rounded-2xl border p-5 transition-all cursor-pointer ${
+      className={`group relative flex items-center gap-5 rounded-2xl border p-5 transition-all cursor-pointer z-10 ${
         selected
-          ? "border-ccb-gold bg-[#FFF8D6] shadow-[0_4px_0_rgba(233,181,45,0.5),0_12px_32px_-10px_rgba(26,37,96,0.3)] scale-[1.01]"
-          : "border-[#E2E8FB] bg-white hover:border-ccb-gold/60 hover:bg-[#FFFBEA] hover:scale-[1.005] hover:shadow-md shadow-sm"
+          ? "border-ccb-gold bg-[#FFF8D6] shadow-[0_4px_0_rgba(233,181,45,0.5),0_12px_32px_-10px_rgba(26,37,96,0.3)]"
+          : "border-[#E2E8FB] bg-white hover:border-ccb-gold/60 hover:bg-[#FFFBEA] hover:shadow-lg shadow-sm"
       }`}
     >
       <Thumb initials={m.initials} tone={m.tone} code={m.code} />
@@ -540,7 +611,7 @@ function MonthlyReport({
                 const pct = (q / max) * 100;
                 return (
                   <div key={i} className={`flex items-center gap-3 rounded-lg px-2 py-1.5 ${dim ? "opacity-45" : ""}`}>
-                    <div className="w-[58px] rounded-md bg-ccb-canvas px-2 py-1 text-center text-[10px] font-bold tracking-widest text-ccb-navy">
+                    <div className="w-[70px] rounded-md bg-ccb-canvas px-2 py-1 text-center text-[10px] font-bold tracking-widest text-ccb-navy whitespace-nowrap">
                       DAY {String(i + 1).padStart(2, "0")}
                     </div>
                     <div className="flex-1 h-3 rounded-full bg-ccb-canvas overflow-hidden">
@@ -1075,40 +1146,13 @@ function MaterialMonitoring() {
       <div className="flex h-full bg-white">
         <Sidebar />
 
-        <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden">
-          <TopBar>
-            <div className="flex items-center gap-1 border-t border-ccb-border bg-[#F8FAFF] px-8 py-2 overflow-x-auto">
-              {tabs.map((tab) => (
-                <button
-                  key={tab}
-                  onClick={() => setActiveTab(tab)}
-                  className={`rounded-md px-3.5 py-1.5 text-[12px] font-bold transition-all cursor-pointer ${
-                    activeTab === tab
-                      ? "bg-ccb-blue text-white shadow-sm"
-                      : "text-ccb-muted hover:text-ccb-navy hover:bg-ccb-canvas"
-                  }`}
-                >
-                  {tab}
-                </button>
-              ))}
-              <button
-                onClick={() => setActiveTab("ALL")}
-                className={`rounded-md px-3.5 py-1.5 text-[12px] font-bold transition-all cursor-pointer ${
-                  activeTab === "ALL"
-                    ? "bg-ccb-gold text-ccb-navy shadow-sm"
-                    : "text-ccb-muted hover:text-ccb-navy hover:bg-ccb-canvas"
-                }`}
-              >
-                ALL
-              </button>
-            </div>
-          </TopBar>
+        <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden lg:pl-0 pl-0">
+          <TopBar />
 
-          <div className="flex-1 bg-ccb-canvas p-7 space-y-6 overflow-y-auto overflow-x-hidden">
+          <div className="flex-1 overflow-y-auto bg-ccb-canvas p-7 space-y-6">
             {/* SELECTED context + KPIs */}
             <div>
               <div className="mb-3 flex items-center gap-2 text-[11px] uppercase tracking-[0.16em] text-ccb-muted">
-                <BarChart3 size={13} className="text-ccb-gold" />
                 <span className="font-semibold">Selected:</span>
                 <span className="text-ccb-navy font-bold">
                   {selected ? `${selected.code} — ${selected.desc}` : "— No material selected"}
@@ -1119,15 +1163,14 @@ function MaterialMonitoring() {
                 <Kpi variant="blue" label="Initial Stock" value={selected ? fmt(selected.initial) : "0"} unit={selected?.uom} />
                 <Kpi variant="blue3" label="Received" value={selected ? fmt(selected.received) : "0"} unit={selected?.uom} />
                 <Kpi variant="blue2" label="Current Balance" value={selected ? fmt(selected.balance) : "0"} unit={selected?.uom} />
-                <Kpi variant="navy" label="Issued" value={selected ? fmt(selected.issued) : "0"} unit={selected?.uom} />
+                <Kpi variant="navy" label="Issued" value={selected ? fmt(filterDailyOutByRange(selected.dailyOut, range)) : "0"} unit={selected?.uom} />
               </div>
             </div>
 
             {/* Toolbar + List */}
-            <div className="relative rounded-3xl border border-ccb-border bg-white p-5 shadow-sm overflow-hidden">
+            <div className="relative rounded-3xl border border-ccb-border bg-white p-8 shadow-sm">
               <div className="flex flex-wrap items-center gap-3 pb-4 border-b border-ccb-border">
                 <div className="flex items-center gap-2">
-                  <span className="h-5 w-1 rounded-sm bg-ccb-gold" />
                   <h3 className="text-[14px] font-bold text-ccb-navy">List of Materials</h3>
                   <span className="ml-2 rounded-full bg-ccb-canvas px-2 py-0.5 text-[10.5px] font-semibold text-ccb-muted">
                   {displayLoading ? "..." : `${filtered.length} items`}
@@ -1151,7 +1194,7 @@ function MaterialMonitoring() {
                       onChange={(e) => setRange(e.target.value as keyof typeof RANGE_LABEL)}
                       className="appearance-none rounded-lg border border-ccb-border bg-white pl-3 pr-9 py-2 text-[12.5px] font-semibold text-ccb-navy outline-none focus:border-ccb-blue"
                     >
-                      {(["Weekly", "Monthly", "Quarterly", "Yearly"] as const).map((r) => (
+                      {(["All", "Weekly", "Monthly", "Quarterly", "Yearly"] as const).map((r) => (
                         <option key={r}>{r}</option>
                       ))}
                     </select>
@@ -1168,7 +1211,7 @@ function MaterialMonitoring() {
               </div>
 
               {/* Cards */}
-              <div className="mt-4 space-y-3 overflow-y-auto overflow-x-hidden" style={{ maxHeight: "calc(100vh - 420px)" }}>
+              <div className="mt-4 space-y-3 overflow-y-auto" style={{ maxHeight: "calc(100vh - 420px)" }}>
                 {displayLoading ? (
                   <div className="rounded-2xl border border-dashed border-ccb-border bg-ccb-canvas/30 p-12 text-center text-[13px] text-ccb-muted">
                     Loading inventory data from Google Sheets...
@@ -1192,6 +1235,7 @@ function MaterialMonitoring() {
                       onStockIn={() => setModal({ type: "in", code: m.code })}
                       onStockOut={() => setModal({ type: "out", code: m.code })}
                       rangeLabel={RANGE_LABEL[range]}
+                      range={range}
                     />
                   ))
                 )}

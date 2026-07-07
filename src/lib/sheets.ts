@@ -160,18 +160,34 @@ export async function updateStockIn(tabName: string, rowNumber: number, qty: num
     const colG = getColumnLetter(7);
     const colH = getColumnLetter(8);
 
+    // Read current received and balance values
+    const currentRes = await client.spreadsheets.values.get({
+      spreadsheetId,
+      range: `${tabName}!${colG}${rowNumber}:${colH}${rowNumber}`,
+    });
+
+    const currentRow = currentRes.data.values?.[0] || [];
+    const currentReceived = getCellDouble(currentRow, 0);
+    const currentBalance = getCellDouble(currentRow, 1);
+
+    // Calculate new values
+    const newReceived = currentReceived + qty;
+    const newBalance = currentBalance + qty;
+
+    // Update received column
     await client.spreadsheets.values.update({
       spreadsheetId,
       range: `${tabName}!${colG}${rowNumber}`,
       valueInputOption: "USER_ENTERED",
-      requestBody: { values: [[qty]] },
+      requestBody: { values: [[newReceived]] },
     });
 
+    // Update balance column
     await client.spreadsheets.values.update({
       spreadsheetId,
       range: `${tabName}!${colH}${rowNumber}`,
       valueInputOption: "USER_ENTERED",
-      requestBody: { values: [[dateStr]] },
+      requestBody: { values: [[newBalance]] },
     });
   });
 }

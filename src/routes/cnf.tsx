@@ -123,10 +123,10 @@ function CNFMonitoring() {
     <div className="h-screen bg-ccb-canvas overflow-hidden">
       <div className="flex h-full bg-white">
         <Sidebar />
-        <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden">
+        <div className="flex-1 flex flex-col h-full overflow-hidden">
 
           {/* Header */}
-          <div className="bg-white border-b border-ccb-border">
+          <div className="bg-white border-b border-ccb-border shrink-0">
             <div className="flex items-center justify-between px-8 py-4">
               <div className="flex items-center gap-3">
                 <span className="block h-[22px] w-[4px] rounded-sm bg-ccb-gold" />
@@ -144,7 +144,7 @@ function CNFMonitoring() {
           </div>
 
           {/* Period tabs */}
-          <div className="border-b border-ccb-border bg-[#F8FAFF] px-8 pt-3">
+          <div className="border-b border-ccb-border bg-[#F8FAFF] px-8 pt-3 shrink-0">
             <div className="flex items-center gap-1 overflow-x-auto">
               {tabs.map((t) => (
                 <button key={t} onClick={() => { setActivePeriod(t); setSelectedBrandId(""); setSelectedItemId(""); }}
@@ -155,27 +155,25 @@ function CNFMonitoring() {
             </div>
           </div>
 
-          {/* Content */}
-          <div className="flex-1 p-8 bg-ccb-canvas space-y-6">
+          {/* Main body — KPI strip + two-panel layout */}
+          <div className="flex-1 overflow-hidden flex flex-col bg-ccb-canvas">
 
             {isLoading ? (
-              <div className="flex items-center justify-center h-40">
+              <div className="flex items-center justify-center h-full">
                 <p className="text-ccb-muted animate-pulse">Loading CNF data...</p>
               </div>
             ) : displayError ? (
-              <div className="flex items-center justify-center h-40">
-                <p className="max-w-2xl text-center text-ccb-red">
-                  Failed to load CNF data: {displayError.message}
-                </p>
+              <div className="flex items-center justify-center h-full">
+                <p className="max-w-2xl text-center text-ccb-red">Failed to load CNF data: {displayError.message}</p>
               </div>
             ) : !brand ? (
-              <div className="flex items-center justify-center h-40">
+              <div className="flex items-center justify-center h-full">
                 <p className="text-ccb-muted">No CNF data found for {currentTab}</p>
               </div>
             ) : (
               <>
-                {/* KPI Band */}
-                <section className="space-y-3">
+                {/* ── KPI strip (pinned, never scrolls) ── */}
+                <div className="shrink-0 px-7 pt-5 pb-4 space-y-3">
                   <div className="flex items-center gap-2">
                     <span className="size-1.5 rounded-full bg-ccb-gold" />
                     <p className="text-[10px] font-bold uppercase tracking-widest text-ccb-muted">
@@ -183,85 +181,83 @@ function CNFMonitoring() {
                     </p>
                   </div>
                   <div className="grid grid-cols-4 gap-4">
-                    <CnfKpi variant="blue"  label="Initial Stock"    value={selectedItem ? selectedItem.initialStock.toLocaleString() : "0"}    unit={selectedItem?.uom} />
-                    <CnfKpi variant="blue3" label="Received"         value={selectedItem ? selectedItem.inQuantity.toLocaleString() : "0"}      unit={selectedItem?.uom} />
-                    <CnfKpi variant="blue2" label="Current Balance"  value={selectedItem ? selectedItem.currentBalance.toLocaleString() : "0"}  unit={selectedItem?.uom} />
-                    <CnfKpi variant="navy"  label="Issued"           value={selectedItem ? selectedItem.outQuantity.toLocaleString() : "0"}     unit={selectedItem?.uom} />
+                    <CnfKpi variant="blue"  label="Initial Stock"   value={selectedItem ? selectedItem.initialStock.toLocaleString() : "0"}   unit={selectedItem?.uom} />
+                    <CnfKpi variant="blue3" label="Received"        value={selectedItem ? selectedItem.inQuantity.toLocaleString() : "0"}     unit={selectedItem?.uom} />
+                    <CnfKpi variant="blue2" label="Current Balance" value={selectedItem ? selectedItem.currentBalance.toLocaleString() : "0"} unit={selectedItem?.uom} />
+                    <CnfKpi variant="navy"  label="Issued"          value={selectedItem ? selectedItem.outQuantity.toLocaleString() : "0"}    unit={selectedItem?.uom} />
                   </div>
-                </section>
+                </div>
 
-                {/* Split Navigator */}
-                <section className="overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-ccb-border">
-                  <div className="grid grid-cols-1 lg:grid-cols-[288px_minmax(0,1fr)]">
+                {/* ── Two-panel split (fills remaining height) ── */}
+                <div className="flex-1 overflow-hidden flex gap-5 px-7 pb-7">
 
-                    {/* Left — Brand list */}
-                    <div className="flex flex-col border-b border-ccb-border lg:border-b-0 lg:border-r">
-                      <div className="border-b border-ccb-border bg-ccb-canvas/40 p-4">
-                        <div className="relative">
-                          <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-ccb-muted" />
-                          <input value={search} onChange={(e) => setSearch(e.target.value)}
-                            placeholder="Search brands..."
-                            className="w-full rounded-md border border-ccb-border bg-white py-2 pl-10 pr-3 text-xs placeholder:text-ccb-muted focus:outline-none focus:ring-1 focus:ring-ccb-blue" />
-                        </div>
-                      </div>
-                      <div className="max-h-[560px] divide-y divide-ccb-border overflow-y-auto overflow-x-hidden">
-                        {filteredBrands.map((b) => {
-                          const active = b.id === selectedBrandId;
-                          const cats = Array.from(new Set(b.items.map((i) => i.category)));
-                          return (
-                            <button key={b.id} onClick={() => {
-                              setSelectedBrandId(b.id);
-                              if (b.items[0]) setSelectedItemId(`${b.items[0].tabName}-${b.items[0].rowNumber}`);
-                            }}
-                              className={`group w-full border-r-4 p-5 text-left transition-all ${
-                                active
-                                  ? "border-ccb-gold bg-[#FFF8D6] shadow-[0_4px_0_rgba(233,181,45,0.5),0_12px_32px_-10px_rgba(26,37,96,0.3)] scale-[1.01]"
-                                  : "border-transparent hover:border-ccb-gold/60 hover:bg-[#FFFBEA] hover:shadow-md"
-                              } ${b.status === "legacy" ? "opacity-60" : ""}`}>
-                              <div className="mb-1 flex items-start justify-between gap-2">
-                                <h3 className={`text-sm font-bold ${active ? "text-ccb-navy" : "text-ccb-navy/80"}`}>{b.name}</h3>
-                              </div>
-                              <p className="text-[11px] text-ccb-muted">{cats.join(" · ")}</p>
-                            </button>
-                          );
-                        })}
+                  {/* LEFT — brand list panel */}
+                  <div className="w-[260px] shrink-0 flex flex-col rounded-2xl bg-white shadow-sm ring-1 ring-ccb-border overflow-hidden">
+                    {/* search header */}
+                    <div className="shrink-0 border-b border-ccb-border bg-ccb-canvas/40 p-4">
+                      <div className="relative">
+                        <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-ccb-muted" />
+                        <input value={search} onChange={(e) => setSearch(e.target.value)}
+                          placeholder="Search brands..."
+                          className="w-full rounded-md border border-ccb-border bg-white py-2 pl-10 pr-3 text-xs placeholder:text-ccb-muted focus:outline-none focus:ring-1 focus:ring-ccb-blue" />
                       </div>
                     </div>
-
-                    {/* Right — Category + item matrix */}
-                    <div className="flex flex-col">
-                      <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 border-b border-ccb-border bg-white px-6 py-3">
-                        <div className="flex min-w-0 flex-wrap items-center gap-3">
-                          <h2 className="truncate text-sm font-bold text-ccb-navy">{brand.name} — Inventory Matrix</h2>
-                          <span className="h-4 w-px bg-ccb-border" />
-                          <span className="rounded px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider bg-ccb-border text-ccb-muted">
-                            {brandTotals.balance > 0 ? `Total: ${brandTotals.balance.toLocaleString()} in balance` : ""}
-                          </span>
-                          <span className="rounded px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider bg-ccb-gold/15 text-ccb-navy">
-                            {uniqueCategories.length} categories
-                          </span>
-                        </div>
-                        <button className="flex shrink-0 items-center gap-1.5 rounded-md bg-ccb-blue px-3 py-1.5 text-xs font-semibold text-white hover:bg-ccb-navy">
-                          <Plus className="size-3.5" /> Bulk update
-                        </button>
-                      </div>
-                      <div className="p-6">
-                        <CnfCategoryGrid
-                          categories={categories}
-                          selectedItemId={selectedItemId}
-                          onSelect={setSelectedItemId}
-                          onStockIn={(item) => setModal({ kind: "in", item })}
-                          onStockOut={(item) => setModal({ kind: "out", item })}
-                          onEllipsis={(item, e) => {
-                            const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-                            setPopover({ item, x: rect.left - 320, y: rect.bottom + 5 });
+                    {/* scrollable brand list */}
+                    <div className="flex-1 overflow-y-auto divide-y divide-ccb-border">
+                      {filteredBrands.map((b) => {
+                        const isActive = b.id === selectedBrandId;
+                        const cats = Array.from(new Set(b.items.map((i) => i.category)));
+                        return (
+                          <button key={b.id} onClick={() => {
+                            setSelectedBrandId(b.id);
+                            if (b.items[0]) setSelectedItemId(`${b.items[0].tabName}-${b.items[0].rowNumber}`);
                           }}
-                        />
+                            className={`w-full border-r-4 p-4 text-left transition-all ${
+                              isActive
+                                ? "border-ccb-gold bg-[#FFF8D6]"
+                                : "border-transparent hover:border-ccb-gold/60 hover:bg-[#FFFBEA]"
+                            } ${b.status === "legacy" ? "opacity-60" : ""}`}>
+                            <h3 className={`text-sm font-bold ${isActive ? "text-ccb-navy" : "text-ccb-navy/80"}`}>{b.name}</h3>
+                            <p className="mt-0.5 text-[10px] uppercase tracking-widest text-ccb-muted">{cats.join(" · ")}</p>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* RIGHT — category cards panel */}
+                  <div className="flex-1 flex flex-col overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-ccb-border">
+                    {/* toolbar */}
+                    <div className="shrink-0 flex items-center justify-between gap-3 border-b border-ccb-border bg-white px-5 py-3">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <h2 className="text-sm font-bold text-ccb-navy">{brand.name} — Inventory Matrix</h2>
+                        <span className="h-3.5 w-px bg-ccb-border" />
+                        <span className="rounded px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider bg-ccb-gold/15 text-ccb-navy">
+                          {uniqueCategories.length} {uniqueCategories.length === 1 ? "category" : "categories"}
+                        </span>
                       </div>
+                      <button className="flex shrink-0 items-center gap-1.5 rounded-md bg-ccb-blue px-3 py-1.5 text-xs font-semibold text-white hover:bg-ccb-navy">
+                        <Plus className="size-3.5" /> Bulk update
+                      </button>
                     </div>
 
+                    {/* scrollable category cards */}
+                    <div className="flex-1 overflow-y-auto p-5 space-y-4">
+                      <CnfCategoryGrid
+                        categories={categories}
+                        selectedItemId={selectedItemId}
+                        onSelect={setSelectedItemId}
+                        onStockIn={(item) => setModal({ kind: "in", item })}
+                        onStockOut={(item) => setModal({ kind: "out", item })}
+                        onEllipsis={(item, e) => {
+                          const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                          setPopover({ item, x: rect.left - 320, y: rect.bottom + 5 });
+                        }}
+                      />
+                    </div>
                   </div>
-                </section>
+
+                </div>
               </>
             )}
           </div>
@@ -366,7 +362,6 @@ function CnfCategoryGrid({ categories, selectedItemId, onSelect, onStockIn, onSt
   );
 }
 
-// ─── Category Section ────────────────────────────────────────────────────────
 function CategorySection({ category, items, selectedItemId, onSelect, onStockIn, onStockOut, onEllipsis }: {
   category: string; items: CnfItem[]; selectedItemId: string;
   onSelect: (id: string) => void;
@@ -376,51 +371,55 @@ function CategorySection({ category, items, selectedItemId, onSelect, onStockIn,
 }) {
   const total = items.reduce((s, i) => s + i.currentBalance, 0);
   return (
-    <section className="space-y-3">
-      <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3">
-        <div className="flex min-w-0 items-center gap-3">
-          <div className="grid size-8 shrink-0 place-items-center rounded-lg bg-ccb-canvas">
-            <ChevronRight className="size-4 text-ccb-navy" />
+    <div className="rounded-xl border border-ccb-border bg-white overflow-hidden shadow-sm">
+      {/* Category header */}
+      <div className="flex items-center justify-between gap-3 border-b border-ccb-border bg-ccb-canvas/50 px-4 py-3">
+        <div className="flex items-center gap-2">
+          <div className="grid size-7 shrink-0 place-items-center rounded-md bg-ccb-navy/10">
+            <ChevronRight className="size-3.5 text-ccb-navy" />
           </div>
-          <div className="min-w-0">
-            <h4 className="truncate text-sm font-semibold text-ccb-navy">{category}</h4>
-            <p className="text-[10px] font-medium uppercase tracking-widest text-ccb-muted">{items.length} variants</p>
+          <div>
+            <h4 className="text-xs font-bold uppercase tracking-wider text-ccb-navy">{category}</h4>
+            <p className="text-[10px] text-ccb-muted">{items.length} {items.length === 1 ? "variant" : "variants"}</p>
           </div>
         </div>
-        <span className="shrink-0 text-[10px] font-bold uppercase tracking-wider text-ccb-muted">
-          {total > 0 ? `${total.toLocaleString()} in balance` : ""}
-        </span>
+        {total > 0 && (
+          <span className="shrink-0 rounded-full bg-ccb-navy/10 px-2.5 py-0.5 text-[10px] font-bold text-ccb-navy">
+            {total.toLocaleString()} in balance
+          </span>
+        )}
       </div>
-      <div className="overflow-hidden rounded-lg ring-1 ring-ccb-border">
+      {/* Variant rows */}
+      <div className="divide-y divide-ccb-border">
         {items.map((item, idx) => {
           const id = `${item.tabName}-${item.rowNumber}`;
           return (
             <div key={id} onClick={() => onSelect(id)}
-              className={`grid cursor-pointer grid-cols-[minmax(0,1fr)_auto] items-center gap-6 border-t border-ccb-border p-4 first:border-t-0 transition-colors ${
-                selectedItemId === id ? "bg-ccb-blue/5 ring-1 ring-inset ring-ccb-blue/40" : idx % 2 === 1 ? "bg-ccb-canvas/30" : "bg-white"
+              className={`flex cursor-pointer items-center justify-between gap-4 px-4 py-3 transition-colors ${
+                selectedItemId === id
+                  ? "bg-ccb-blue/5 ring-1 ring-inset ring-ccb-blue/30"
+                  : idx % 2 === 1 ? "bg-ccb-canvas/30" : "bg-white"
               }`}>
-              <div className="min-w-0">
-                <p className="text-xs font-bold text-ccb-navy">{item.variant}</p>
-              </div>
+              <p className="text-xs font-bold text-ccb-navy">{item.variant}</p>
               <div className="flex shrink-0 items-center gap-2" onClick={(e) => e.stopPropagation()}>
                 <button onClick={() => onStockIn(item)}
-                  className="rounded-full border border-ccb-border px-3.5 py-1.5 text-[11.5px] font-semibold text-ccb-navy hover:border-ccb-blue hover:text-ccb-blue transition-colors">
+                  className="rounded-full border border-ccb-border px-3 py-1 text-[11px] font-semibold text-ccb-navy hover:border-ccb-blue hover:text-ccb-blue transition-colors">
                   Stock In +
                 </button>
                 <button onClick={() => onStockOut(item)}
-                  className="rounded-full border border-ccb-border px-3.5 py-1.5 text-[11.5px] font-semibold text-ccb-navy hover:border-ccb-red hover:text-ccb-red transition-colors">
+                  className="rounded-full border border-ccb-border px-3 py-1 text-[11px] font-semibold text-ccb-navy hover:border-ccb-red hover:text-ccb-red transition-colors">
                   Stock Out −
                 </button>
-                <button className="ml-1 rounded-full p-2 text-ccb-muted-2 hover:bg-ccb-canvas hover:text-ccb-navy transition-colors"
+                <button className="rounded-full p-1.5 text-ccb-muted-2 hover:bg-ccb-canvas hover:text-ccb-navy transition-colors"
                   onClick={(e) => { e.stopPropagation(); onEllipsis(item, e); }}>
-                  <MoreVertical size={18} />
+                  <MoreVertical size={15} />
                 </button>
               </div>
             </div>
           );
         })}
       </div>
-    </section>
+    </div>
   );
 }
 

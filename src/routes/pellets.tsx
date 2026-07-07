@@ -235,7 +235,7 @@ function PelletsDashboard() {
       <div className="flex h-full bg-white">
         <Sidebar />
 
-        <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden">
+        <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden lg:pl-0 pl-0">
           <header className="border-b-2 border-destructive bg-card">
             <div className="flex items-start justify-between px-8 py-5">
               <div className="flex gap-3">
