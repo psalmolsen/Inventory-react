@@ -105,6 +105,7 @@ export async function getMaterials(tabName: string): Promise<MaterialItem[]> {
     const res = await client.spreadsheets.values.get({
       spreadsheetId,
       range: `${tabName}!A1:AQ150`,
+      valueRenderOption: "UNFORMATTED_VALUE",
     });
 
     const rows = res.data.values || [];
@@ -164,6 +165,7 @@ export async function updateStockIn(tabName: string, rowNumber: number, qty: num
     const currentRes = await client.spreadsheets.values.get({
       spreadsheetId,
       range: `${tabName}!${colG}${rowNumber}:${colH}${rowNumber}`,
+      valueRenderOption: "UNFORMATTED_VALUE",
     });
 
     const currentRow = currentRes.data.values?.[0] || [];
@@ -363,6 +365,7 @@ export async function provisionCurrentMonth(): Promise<string | null> {
     const sourceRes = await client.spreadsheets.values.get({
       spreadsheetId,
       range: `${sourceTab}!A1:AQ150`,
+      valueRenderOption: "UNFORMATTED_VALUE",
     });
     const sourceRows: any[][] = sourceRes.data.values || [];
 

@@ -49,6 +49,7 @@ export async function getCnfItems(tabName: string): Promise<CnfItem[]> {
     const res = await sheets.spreadsheets.values.get({
       spreadsheetId,
       range: `${tabName}!A1:AZ1000`,
+      valueRenderOption: "UNFORMATTED_VALUE",
     });
 
     const rows = res.data.values || [];
@@ -61,26 +62,30 @@ export async function getCnfItems(tabName: string): Promise<CnfItem[]> {
     for (let i = 4; i < rows.length; i++) {
       const row = rows[i];
 
-      if (row[0] && row[0].trim()) {
-        currentBrand = row[0].trim();
+      if (row[0] && String(row[0]).trim()) {
+        currentBrand = String(row[0]).trim();
+        // Reset category when a new brand block starts
+        currentCategory = "OTHER";
       }
 
-      if (row[1] && row[1].trim()) {
-        const cat = row[1].trim().toUpperCase();
+      if (row[1] && String(row[1]).trim()) {
+        const cat = String(row[1]).trim().toUpperCase();
         if (cat.includes("COLLAR")) currentCategory = "COLLAR";
         else if (cat.includes("NAME PLATE") || cat.includes("NAMEPLATE")) currentCategory = "NAME PLATE";
         else if (cat.includes("FOOT RING") || cat.includes("FOOTRING")) currentCategory = "FOOT RING";
         else currentCategory = "OTHER";
       }
 
-      const variant = row[2]?.trim() || "";
+      const variant = String(row[2] ?? "").trim();
       if (!variant || !currentBrand) continue;
+      // Skip rows that didn't match a known CNF category
+      if (currentCategory === "OTHER") continue;
 
-      const uom = row[3]?.trim() || "Pcs";
+      const uom = String(row[3] ?? "").trim() || "Pcs";
       const price = parseFloat(row[4]) || 0;
       const initialStock = parseFloat(row[5]) || 0;
       const inQuantity = parseFloat(row[6]) || 0;
-      const date = row[7]?.trim() || "";
+      const date = String(row[7] ?? "").trim();
       const currentBalance = parseFloat(row[8]) || 0;
       const outQuantity = parseFloat(row[9]) || 0;
 
@@ -115,24 +120,24 @@ export async function getCnfItems(tabName: string): Promise<CnfItem[]> {
 export async function updateCnfStockIn(tabName: string, rowNumber: number, qty: number): Promise<void> {
   return withSheetsAuthError(async () => {
     const sheets = getSheetsClient();
+
+    // Read current IN quantity (col G) only — balance is formula-driven in the sheet
     const res = await sheets.spreadsheets.values.get({
       spreadsheetId,
-      range: `${tabName}!G${rowNumber}:I${rowNumber}`,
+      range: `${tabName}!G${rowNumber}`,
+      valueRenderOption: "UNFORMATTED_VALUE",
     });
 
-    const row = res.data.values?.[0] || [];
-    const currentIn = parseFloat(row[0]) || 0;
-    const currentBalance = parseFloat(row[2]) || 0;
-
+    const currentIn = parseFloat(res.data.values?.[0]?.[0]) || 0;
     const newIn = currentIn + qty;
-    const newBalance = currentBalance + qty;
 
+    // Write only col G — let GSheet formulas recalculate balance
     await sheets.spreadsheets.values.update({
       spreadsheetId,
-      range: `${tabName}!G${rowNumber}:I${rowNumber}`,
-      valueInputOption: "RAW",
+      range: `${tabName}!G${rowNumber}`,
+      valueInputOption: "USER_ENTERED",
       requestBody: {
-        values: [[newIn, row[1], newBalance]],
+        values: [[newIn]],
       },
     });
   });
@@ -146,40 +151,43 @@ export async function updateCnfStockOut(
 ): Promise<void> {
   return withSheetsAuthError(async () => {
     const sheets = getSheetsClient();
+
+    // Col K = column 11 (1-indexed) = day 1
+    // Col K + (day - 1) = the target day column
+    const colNumber = 11 + (day - 1); // K=11 for day 1, L=12 for day 2, …
+    const colLetter = getColumnLetter(colNumber);
+
+    // Read the current value in that day cell first, then add to it
     const res = await sheets.spreadsheets.values.get({
       spreadsheetId,
-      range: `${tabName}!I${rowNumber}:AP${rowNumber}`,  // I=balance, J=out, K–AO=days 1–31, AP=total issued
+      range: `${tabName}!${colLetter}${rowNumber}`,
+      valueRenderOption: "UNFORMATTED_VALUE",
     });
 
-    const row = res.data.values?.[0] || [];
-    const currentBalance = parseFloat(row[0]) || 0;  // I
-    const currentOut = parseFloat(row[1]) || 0;       // J
-    // row[2]–row[32] = K–AO = days 1–31  (dayIndex = day + 1)
-    const dayIndex = day + 1;
-    const currentDayOut = parseFloat(row[dayIndex]) || 0;
-    const currentTotal = parseFloat(row[33]) || 0;    // AP = total issued (index 33 in this slice)
-
-    const newBalance = Math.max(0, currentBalance - qty);
-    const newOut = currentOut + qty;
+    const currentDayOut = parseFloat(res.data.values?.[0]?.[0]) || 0;
     const newDayOut = currentDayOut + qty;
-    const newTotal = currentTotal + qty;
 
-    // Pad array to cover all 34 positions (I through AP)
-    while (row.length < 34) row.push(0);
-    row[0] = newBalance;
-    row[1] = newOut;
-    row[dayIndex] = newDayOut;
-    row[33] = newTotal;
-
+    // Write ONLY the day column — let GSheet formulas handle balance, out total, etc.
     await sheets.spreadsheets.values.update({
       spreadsheetId,
-      range: `${tabName}!I${rowNumber}:AP${rowNumber}`,
-      valueInputOption: "RAW",
+      range: `${tabName}!${colLetter}${rowNumber}`,
+      valueInputOption: "USER_ENTERED",
       requestBody: {
-        values: [row],
+        values: [[newDayOut]],
       },
     });
   });
+}
+
+function getColumnLetter(colNum: number): string {
+  let temp: number;
+  let letter = "";
+  while (colNum > 0) {
+    temp = (colNum - 1) % 26;
+    letter = String.fromCharCode(65 + temp) + letter;
+    colNum = Math.floor((colNum - temp - 1) / 26);
+  }
+  return letter;
 }
 
 export async function updateCnfItem(

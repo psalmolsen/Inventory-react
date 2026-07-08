@@ -8,6 +8,15 @@ import type { CnfItem } from "../lib/cnf-types";
 
 export const Route = createFileRoute("/cnf")({ component: CNFMonitoring });
 
+// ─── Range filter (mirrors Material Monitoring) ──────────────────────────────
+const RANGE_LABEL: Record<string, string> = {
+  All: "ALL TIME VALUE",
+  Weekly: "THIS WEEK VALUE",
+  Monthly: "THIS MONTH VALUE",
+  Quarterly: "THIS QUARTER VALUE",
+  Yearly: "THIS YEAR VALUE",
+};
+
 // ─── Types ───────────────────────────────────────────────────────────────────
 type Brand = { id: string; name: string; status: "primary" | "legacy"; items: CnfItem[] };
 type Modal = { kind: "in" | "out" | "report" | "edit"; item: CnfItem } | null;
@@ -37,6 +46,7 @@ function CNFMonitoring() {
   const qc = useQueryClient();
   const [search, setSearch] = useState("");
   const [activePeriod, setActivePeriod] = useState("");
+  const [range, setRange] = useState<keyof typeof RANGE_LABEL>("Monthly");
 
   const [selectedBrandId, setSelectedBrandId] = useState("");
   const [selectedItemId, setSelectedItemId] = useState("");
@@ -136,7 +146,6 @@ function CNFMonitoring() {
           <div className="bg-white border-b border-ccb-border shrink-0">
             <div className="flex items-center justify-between px-8 py-4">
               <div className="flex items-center gap-3">
-                <span className="block h-[22px] w-[4px] rounded-sm bg-ccb-gold" />
                 <div>
                   <h1 className="text-[18px] font-bold leading-tight text-ccb-navy">CNF Monitoring</h1>
                   <p className="text-[12px] text-ccb-muted">Track Collar, Nameplate, and Footring inventory by brand</p>
@@ -182,7 +191,6 @@ function CNFMonitoring() {
                 {/* ── KPI strip (pinned, never scrolls) ── */}
                 <div className="shrink-0 px-7 pt-5 pb-4 space-y-3">
                   <div className="flex items-center gap-2">
-                    <span className="size-1.5 rounded-full bg-ccb-gold" />
                     <p className="text-[10px] font-bold uppercase tracking-widest text-ccb-muted">
                       Selected: <span className="text-ccb-navy">{brand.name} — {selectedItem?.category} {selectedItem?.variant}</span>
                     </p>
@@ -219,11 +227,11 @@ function CNFMonitoring() {
                             setSelectedBrandId(b.id);
                             if (b.items[0]) setSelectedItemId(`${b.items[0].tabName}-${b.items[0].rowNumber}`);
                           }}
-                            className={`w-full border-r-4 p-4 text-left transition-all ${
+                            className={`w-full rounded-2xl border-r-4 p-4 text-left transition-all ${
                               isActive
-                                ? "border-ccb-gold bg-[#FFF8D6]"
-                                : "border-transparent hover:border-ccb-gold/60 hover:bg-[#FFFBEA]"
-                            } ${b.status === "legacy" ? "opacity-60" : ""}`}>
+                                ? "border-ccb-gold bg-[#FFF8D6] shadow-[0_4px_0_rgba(233,181,45,0.5),0_12px_32px_-10px_rgba(26,37,96,0.3)]"
+                                : "border-transparent hover:border-ccb-gold/60 hover:bg-[#FFFBEA] hover:shadow-sm"
+                            } `}>
                             <h3 className={`text-sm font-bold ${isActive ? "text-ccb-navy" : "text-ccb-navy/80"}`}>{b.name}</h3>
                             <p className="mt-0.5 text-[10px] uppercase tracking-widest text-ccb-muted">{cats.join(" · ")}</p>
                           </button>
@@ -244,13 +252,22 @@ function CNFMonitoring() {
                         </span>
                       </div>
                       <div className="flex shrink-0 items-center gap-2">
+                        <div className="relative">
+                          <select
+                            value={range}
+                            onChange={(e) => setRange(e.target.value as keyof typeof RANGE_LABEL)}
+                            className="appearance-none rounded-lg border border-ccb-border bg-white pl-3 pr-9 py-2 text-[12.5px] font-semibold text-ccb-navy outline-none focus:border-ccb-blue"
+                          >
+                            {(["All", "Weekly", "Monthly", "Quarterly", "Yearly"] as const).map((r) => (
+                              <option key={r}>{r}</option>
+                            ))}
+                          </select>
+                          <ChevronDown size={14} className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-ccb-muted" />
+                        </div>
                         <button
                           onClick={() => setAddNewCnfOpen(true)}
                           className="flex items-center gap-1.5 rounded-md border border-ccb-blue px-3 py-1.5 text-xs font-semibold text-ccb-blue hover:bg-ccb-blue hover:text-white transition-colors">
                           <Plus className="size-3.5" /> Add New CNF
-                        </button>
-                        <button className="flex shrink-0 items-center gap-1.5 rounded-md bg-ccb-blue px-3 py-1.5 text-xs font-semibold text-white hover:bg-ccb-navy">
-                          <Plus className="size-3.5" /> Bulk update
                         </button>
                       </div>
                     </div>
@@ -431,10 +448,10 @@ function CategorySection({ category, items, selectedItemId, onSelect, onStockIn,
           const id = `${item.tabName}-${item.rowNumber}`;
           return (
             <div key={id} onClick={() => onSelect(id)}
-              className={`flex cursor-pointer items-center justify-between gap-4 px-4 py-3 transition-colors ${
+              className={`group relative flex cursor-pointer items-center justify-between gap-4 rounded-2xl border px-4 py-3 transition-all ${
                 selectedItemId === id
-                  ? "bg-ccb-blue/5 ring-1 ring-inset ring-ccb-blue/30"
-                  : idx % 2 === 1 ? "bg-ccb-canvas/30" : "bg-white"
+                  ? "border-ccb-gold bg-[#FFF8D6] shadow-[0_4px_0_rgba(233,181,45,0.5),0_12px_32px_-10px_rgba(26,37,96,0.3)]"
+                  : idx % 2 === 1 ? "bg-ccb-canvas/30" : "bg-white hover:border-ccb-gold/60 hover:bg-[#FFFBEA] hover:shadow-sm"
               }`}>
               <p className="text-xs font-bold text-ccb-navy">{item.variant}</p>
               <div className="flex shrink-0 items-center gap-2" onClick={(e) => e.stopPropagation()}>
