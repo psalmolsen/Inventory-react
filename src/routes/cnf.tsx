@@ -159,18 +159,6 @@ function CNFMonitoring() {
             <div className="h-[3px] bg-ccb-red" />
           </div>
 
-          {/* Period tabs */}
-          <div className="border-b border-ccb-border bg-[#F8FAFF] px-8 pt-3 shrink-0">
-            <div className="flex items-center gap-1 overflow-x-auto">
-              {tabs.map((t) => (
-                <button key={t} onClick={() => { setActivePeriod(t); setSelectedBrandId(""); setSelectedItemId(""); }}
-                  className={`shrink-0 border-b-2 px-4 pb-3 text-xs font-bold uppercase tracking-wider transition-colors ${
-                    currentTab === t ? "border-ccb-gold text-ccb-gold" : "border-transparent text-ccb-muted hover:text-ccb-navy"
-                  }`}>{t}</button>
-              ))}
-            </div>
-          </div>
-
           {/* Main body — KPI strip + two-panel layout */}
           <div className="flex-1 overflow-hidden flex flex-col bg-ccb-canvas">
 

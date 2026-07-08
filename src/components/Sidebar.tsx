@@ -5,8 +5,8 @@ import { useState } from "react";
 const NAV = [
   { label: "Material Monitoring", icon: Package, to: "/" },
   { label: "CNF Monitoring", icon: Droplets, to: "/cnf" },
-  { label: "O-Ring Monitoring", icon: Circle, to: "/oring" },
-  { label: "Pellets L-Sales", icon: Boxes, to: "/pellets" },
+  { label: "O-Ring Report", icon: Circle, to: "/oring" },
+  { label: "Pellets Report", icon: Boxes, to: "/pellets" },
   { label: "Station Consumption", icon: Factory, to: "/station-consumption" },
 ] as const;
 

@@ -1,0 +1,101 @@
+@import "tailwindcss" source(none);
+@source "../src";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --font-sans: "Poppins", ui-sans-serif, system-ui, sans-serif;
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --radius-2xl: calc(var(--radius) + 8px);
+  --radius-3xl: calc(var(--radius) + 12px);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-ring-offset-background: var(--background);
+  --color-brand: var(--brand);
+  --color-brand-foreground: var(--brand-foreground);
+  --color-brand-accent: var(--brand-accent);
+  --color-brand-danger: var(--brand-danger);
+  --color-brand-surface: var(--brand-surface);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+
+  --shadow-elevated: 0 30px 60px -25px color-mix(in oklab, var(--brand) 45%, transparent);
+  --shadow-card: 0 12px 30px -18px color-mix(in oklab, var(--brand) 40%, transparent);
+
+  --bg-gradient-brand: linear-gradient(140deg, var(--brand) 0%, oklch(0.22 0.09 264) 55%, oklch(0.16 0.07 264) 100%);
+}
+
+:root {
+  --radius: 0.75rem;
+  --background: oklch(0.985 0.005 260);
+  --foreground: oklch(0.18 0.06 264);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.18 0.06 264);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.18 0.06 264);
+
+  /* Brand — deep navy from the dashboard sidebar */
+  --brand: oklch(0.235 0.09 264);
+  --brand-foreground: oklch(0.985 0.005 260);
+  --brand-surface: oklch(0.18 0.075 264);
+  /* Yellow accent (active nav item) */
+  --brand-accent: oklch(0.83 0.16 85);
+  /* Red accent (rejects / underline / logout) */
+  --brand-danger: oklch(0.6 0.22 25);
+
+  --primary: var(--brand);
+  --primary-foreground: var(--brand-foreground);
+  --secondary: oklch(0.96 0.01 260);
+  --secondary-foreground: var(--brand);
+  --muted: oklch(0.96 0.01 260);
+  --muted-foreground: oklch(0.5 0.03 260);
+  --accent: oklch(0.95 0.02 85);
+  --accent-foreground: var(--brand);
+  --destructive: var(--brand-danger);
+  --destructive-foreground: oklch(0.985 0.005 260);
+  --border: oklch(0.92 0.01 260);
+  --input: oklch(0.92 0.01 260);
+  --ring: var(--brand);
+  --sidebar: var(--brand);
+  --sidebar-foreground: var(--brand-foreground);
+}
+
+.dark {
+  --background: oklch(0.18 0.07 264);
+  --foreground: oklch(0.985 0.005 260);
+  --card: oklch(0.22 0.08 264);
+  --card-foreground: oklch(0.985 0.005 260);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 15%);
+}
+
+@layer base {
+  * { border-color: var(--color-border); }
+  body {
+    background-color: var(--color-background);
+    color: var(--color-foreground);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+  }
+}

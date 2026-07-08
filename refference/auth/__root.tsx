@@ -6,11 +6,11 @@ import {
   useRouter,
   HeadContent,
   Scripts,
-  redirect,
 } from "@tanstack/react-router";
-import { type ReactNode } from "react";
+import { useEffect, type ReactNode } from "react";
 
 import appCss from "../styles.css?url";
+import { reportLovableError } from "../lib/lovable-error-reporting";
 
 function NotFoundComponent() {
   return (
@@ -35,7 +35,12 @@ function NotFoundComponent() {
 }
 
 function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
+  console.error(error);
   const router = useRouter();
+  useEffect(() => {
+    reportLovableError(error, { boundary: "tanstack_root_error_component" });
+  }, [error]);
+
   return (
     <div className="flex min-h-screen items-center justify-center bg-background px-4">
       <div className="max-w-md text-center">
@@ -68,34 +73,23 @@ function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
 }
 
 export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()({
-  beforeLoad: ({ location }) => {
-    // If the user hasn't signed in this session, redirect to /auth
-    // Skip the redirect when already heading to /auth to avoid a loop
-    const isAuthed = typeof window !== "undefined" && sessionStorage.getItem("ccb_authed") === "1";
-    if (!isAuthed && location.pathname !== "/auth") {
-      throw redirect({ to: "/auth" });
-    }
-  },
   head: () => ({
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "CCB Inventory — Material Monitoring" },
-      { name: "description", content: "Material Monitoring and report System for Stockman Clerk" },
-      { name: "author", content: "CCB" },
-      { property: "og:title", content: "CCB Inventory — Material Monitoring" },
-      { property: "og:description", content: "Material Monitoring and report System for Stockman Clerk" },
+      { title: "CCB Inventory Management System" },
+      { name: "description", content: "Live sheet-backed telemetry for materials, pellets, and station consumption." },
+      { property: "og:title", content: "CCB Inventory Management System" },
+      { property: "og:description", content: "Live sheet-backed telemetry for materials, pellets, and station consumption." },
       { property: "og:type", content: "website" },
+      { name: "twitter:card", content: "summary_large_image" },
     ],
     links: [
-      {
-        rel: "stylesheet",
-        href: appCss,
-      },
-      { rel: "icon", href: "/favicon.ico", type: "image/x-icon" },
       { rel: "preconnect", href: "https://fonts.googleapis.com" },
       { rel: "preconnect", href: "https://fonts.gstatic.com", crossOrigin: "anonymous" },
-      { rel: "stylesheet", href: "https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" },
+      { rel: "stylesheet", href: "https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap" },
+      { rel: "stylesheet", href: appCss },
+      { rel: "icon", href: "/favicon.ico", type: "image/x-icon" },
     ],
   }),
   shellComponent: RootShell,
