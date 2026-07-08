@@ -1,9 +1,9 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useMemo, useState, useEffect } from "react";
+import { useMemo, useState, useEffect, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Search, Plus, ChevronRight, ChevronDown, Minus, X, MoreVertical } from "lucide-react";
+import { Search, Plus, ChevronRight, ChevronDown, Minus, X, MoreVertical, Trash2 } from "lucide-react";
 import { Sidebar } from "../components/Sidebar";
-import { getCnfTabsFn, getCnfItemsFn, cnfStockInFn, cnfStockOutFn, cnfEditItemFn } from "../lib/cnf-server-functions";
+import { getCnfTabsFn, getCnfItemsFn, cnfStockInFn, cnfStockOutFn, cnfEditItemFn, addNewCnfFn } from "../lib/cnf-server-functions";
 import type { CnfItem } from "../lib/cnf-types";
 
 export const Route = createFileRoute("/cnf")({ component: CNFMonitoring });
@@ -42,6 +42,7 @@ function CNFMonitoring() {
   const [selectedItemId, setSelectedItemId] = useState("");
   const [modal, setModal] = useState<Modal>(null);
   const [popover, setPopover] = useState<Popover>(null);
+  const [addNewCnfOpen, setAddNewCnfOpen] = useState(false);
 
   const { data: tabs = [], error: tabsError } = useQuery({
     queryKey: ["cnf-tabs"],
@@ -115,6 +116,12 @@ function CNFMonitoring() {
   });
   const stockOut = useMutation({
     mutationFn: (d: { tabName: string; rowNumber: number; qty: number; day: number }) => cnfStockOutFn({ data: d }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["cnf-items", currentTab] }),
+  });
+
+  const addNewCnf = useMutation({
+    mutationFn: (d: { tabName: string; brand: string; parts: { name: string; variants: string[] }[] }) =>
+      addNewCnfFn({ data: d }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["cnf-items", currentTab] }),
   });
 
@@ -236,9 +243,16 @@ function CNFMonitoring() {
                           {uniqueCategories.length} {uniqueCategories.length === 1 ? "category" : "categories"}
                         </span>
                       </div>
-                      <button className="flex shrink-0 items-center gap-1.5 rounded-md bg-ccb-blue px-3 py-1.5 text-xs font-semibold text-white hover:bg-ccb-navy">
-                        <Plus className="size-3.5" /> Bulk update
-                      </button>
+                      <div className="flex shrink-0 items-center gap-2">
+                        <button
+                          onClick={() => setAddNewCnfOpen(true)}
+                          className="flex items-center gap-1.5 rounded-md border border-ccb-blue px-3 py-1.5 text-xs font-semibold text-ccb-blue hover:bg-ccb-blue hover:text-white transition-colors">
+                          <Plus className="size-3.5" /> Add New CNF
+                        </button>
+                        <button className="flex shrink-0 items-center gap-1.5 rounded-md bg-ccb-blue px-3 py-1.5 text-xs font-semibold text-white hover:bg-ccb-navy">
+                          <Plus className="size-3.5" /> Bulk update
+                        </button>
+                      </div>
                     </div>
 
                     {/* scrollable category cards */}
@@ -310,6 +324,28 @@ function CNFMonitoring() {
             </button>
           </div>
         </div>
+      )}
+
+      {/* Add New CNF Modal */}
+      {addNewCnfOpen && (
+        <AddNewCnfModal
+          existingBrands={brands.map((b) => b.name)}
+          saving={addNewCnf.isPending}
+          onClose={() => setAddNewCnfOpen(false)}
+          onSave={(payload) => {
+            if (!currentTab) return;
+            addNewCnf.mutate(
+              { tabName: currentTab, brand: payload.brand, parts: payload.parts },
+              {
+                onSuccess: () => {
+                  setAddNewCnfOpen(false);
+                  const newId = payload.brand.toLowerCase().replace(/\s+/g, "-");
+                  setSelectedBrandId(newId);
+                },
+              }
+            );
+          }}
+        />
       )}
     </div>
   );
@@ -507,8 +543,15 @@ function CnfMonthlyReport({ item, tabs, onClose }: {
     items.find((i) => i.rowNumber === item.rowNumber && i.brand === item.brand) ?? null,
   [items, item]);
 
-  const days = useMemo(() => matched?.dateColumns ?? Array(31).fill(0), [matched]);
-  const total = useMemo(() => days.reduce((a: number, b: number) => a + b, 0), [days]);
+  const days = useMemo(() => {
+    const cols = matched?.dateColumns ?? [];
+    // Ensure exactly 31 entries (K–AO)
+    const padded = Array(31).fill(0);
+    cols.slice(0, 31).forEach((v: number, i: number) => { padded[i] = v; });
+    return padded;
+  }, [matched]);
+
+  const total = useMemo(() => matched?.totalIssued ?? days.reduce((a: number, b: number) => a + b, 0), [matched, days]);
   const active = useMemo(() => days.filter((d: number) => d > 0).length, [days]);
   const peakIdx = useMemo(() => { const m = Math.max(...days); return m > 0 ? days.indexOf(m) : -1; }, [days]);
   const avg = useMemo(() => active ? (total / active).toFixed(1) : "0.0", [total, active]);
@@ -670,5 +713,322 @@ function CnfField({ label, value, onChange, type = "text" }: {
       <input type={type} value={value} onChange={(e) => onChange(e.target.value)}
         className="mt-1 w-full rounded-lg border border-ccb-border bg-white px-3 py-2 text-[13px] text-ccb-navy outline-none focus:border-ccb-blue" />
     </label>
+  );
+}
+
+// ─── Add New CNF Modal ───────────────────────────────────────────────────────
+
+type NewPart = { id: string; name: string; variants: { id: string; value: string }[] };
+type NewCnfPayload = { brand: string; parts: { name: string; variants: string[] }[] };
+
+const STANDARD_PARTS = (brandName: string): NewPart[] => [
+  { id: "p-collar",   name: "COLLAR",     variants: [{ id: "v-11", value: "11kgs" }, { id: "v-22", value: "22kgs" }, { id: "v-50", value: "50kgs" }] },
+  { id: "p-nameplate",name: "NAME PLATE", variants: [{ id: "v-np", value: brandName }] },
+  { id: "p-footring", name: "FOOT RING",  variants: [{ id: "v-f11", value: "11kgs" }, { id: "v-f22", value: "22kgs" }, { id: "v-f50", value: "50kgs" }] },
+];
+
+function uid() { return Math.random().toString(36).slice(2, 9); }
+
+function emptyParts(): NewPart[] {
+  return [{ id: uid(), name: "", variants: [{ id: uid(), value: "" }] }];
+}
+
+function AddNewCnfModal({ existingBrands, saving = false, onClose, onSave }: {
+  existingBrands: string[];
+  saving?: boolean;
+  onClose: () => void;
+  onSave: (payload: NewCnfPayload) => void;
+}) {
+  const [brandName, setBrandName] = useState("");
+  const [useTemplate, setUseTemplate] = useState(true);
+  const [parts, setParts] = useState<NewPart[]>(emptyParts());
+  const [errors, setErrors] = useState<Record<string, string>>({});
+
+  // When template is on and brand name changes, regenerate parts
+  useEffect(() => {
+    if (!useTemplate) return;
+    if (!brandName.trim()) {
+      setParts(emptyParts());
+      return;
+    }
+    setParts(STANDARD_PARTS(brandName.trim()));
+  }, [brandName, useTemplate]);
+
+  // When template toggled off, keep current; when toggled on, regenerate
+  const handleTemplateToggle = (checked: boolean) => {
+    setUseTemplate(checked);
+    if (checked && brandName.trim()) {
+      setParts(STANDARD_PARTS(brandName.trim()));
+    } else if (!checked) {
+      setParts(emptyParts());
+    }
+  };
+
+  const updatePartName = useCallback((partId: string, name: string) => {
+    setParts((prev) => prev.map((p) => p.id === partId ? { ...p, name } : p));
+  }, []);
+
+  const addVariant = useCallback((partId: string) => {
+    setParts((prev) => prev.map((p) =>
+      p.id === partId ? { ...p, variants: [...p.variants, { id: uid(), value: "" }] } : p
+    ));
+  }, []);
+
+  const updateVariant = useCallback((partId: string, varId: string, value: string) => {
+    setParts((prev) => prev.map((p) =>
+      p.id === partId ? { ...p, variants: p.variants.map((v) => v.id === varId ? { ...v, value } : v) } : p
+    ));
+  }, []);
+
+  const removeVariant = useCallback((partId: string, varId: string) => {
+    setParts((prev) => prev.map((p) =>
+      p.id === partId ? { ...p, variants: p.variants.filter((v) => v.id !== varId) } : p
+    ));
+  }, []);
+
+  const addPart = useCallback(() => {
+    setParts((prev) => [...prev, { id: uid(), name: "", variants: [{ id: uid(), value: "" }] }]);
+  }, []);
+
+  const removePart = useCallback((partId: string) => {
+    setParts((prev) => prev.filter((p) => p.id !== partId));
+  }, []);
+
+  const validate = (): boolean => {
+    const errs: Record<string, string> = {};
+
+    if (!brandName.trim()) {
+      errs["brand"] = "Brand name is required.";
+    } else if (existingBrands.some((b) => b.toLowerCase() === brandName.trim().toLowerCase())) {
+      errs["brand"] = `Brand "${brandName.trim()}" already exists.`;
+    }
+
+    const partNames = parts.map((p) => p.name.trim().toLowerCase());
+    parts.forEach((part, pi) => {
+      if (!part.name.trim()) {
+        errs[`part-${part.id}`] = "Part name is required.";
+      } else if (partNames.indexOf(part.name.trim().toLowerCase()) !== pi) {
+        errs[`part-${part.id}`] = `Duplicate part name "${part.name.trim()}".`;
+      }
+      const varVals = part.variants.map((v) => v.value.trim().toLowerCase());
+      part.variants.forEach((v, vi) => {
+        if (!v.value.trim()) {
+          errs[`var-${v.id}`] = "Variant is required.";
+        } else if (varVals.indexOf(v.value.trim().toLowerCase()) !== vi) {
+          errs[`var-${v.id}`] = `Duplicate variant "${v.value.trim()}".`;
+        }
+      });
+    });
+
+    setErrors(errs);
+    return Object.keys(errs).length === 0;
+  };
+
+  const handleSave = () => {
+    if (!validate()) return;
+    onSave({
+      brand: brandName.trim(),
+      parts: parts.map((p) => ({ name: p.name.trim(), variants: p.variants.map((v) => v.value.trim()) })),
+    });
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-ccb-navy/50 p-6 backdrop-blur-sm" onClick={onClose}>
+      <div onClick={(e) => e.stopPropagation()}
+        className="w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden rounded-[20px] bg-white shadow-[0_30px_80px_-20px_rgba(26,37,96,0.6)]">
+
+        {/* Header */}
+        <div className="border-b-[3px] border-ccb-blue px-6 pt-6 pb-5 shrink-0">
+          <div className="flex items-start justify-between">
+            <div>
+              <p className="text-[10px] font-semibold uppercase tracking-widest text-ccb-muted">New Entry</p>
+              <h2 className="mt-1 text-[18px] font-bold text-ccb-navy">Add New CNF</h2>
+              <p className="mt-1 text-[12px] text-ccb-muted">Create a new brand with its parts and variants.</p>
+            </div>
+            <button onClick={onClose} className="rounded-md p-1 text-ccb-muted hover:bg-ccb-canvas hover:text-ccb-navy"><X size={18} /></button>
+          </div>
+        </div>
+
+        {/* Scrollable body */}
+        <div className="flex-1 overflow-y-auto px-6 py-5 space-y-5">
+
+          {/* Brand Information */}
+          <div className="rounded-2xl border border-ccb-border bg-ccb-canvas/50 p-5 space-y-4">
+            <div className="flex items-center gap-2">
+              <span className="h-4 w-1 rounded-sm bg-ccb-gold" />
+              <div className="text-[12.5px] font-bold text-ccb-navy">Brand Information</div>
+            </div>
+            <div>
+              <label className="block text-[10px] font-semibold uppercase tracking-[0.14em] text-ccb-muted mb-1">
+                Brand Name <span className="text-ccb-red">*</span>
+              </label>
+              <input
+                value={brandName}
+                onChange={(e) => setBrandName(e.target.value)}
+                placeholder="e.g. RAPID, AKXEL, COASTAL..."
+                className={`w-full rounded-lg border px-3 py-2.5 text-[13px] text-ccb-navy outline-none focus:ring-1 focus:ring-ccb-blue ${
+                  errors["brand"] ? "border-ccb-red bg-red-50" : "border-ccb-border bg-white focus:border-ccb-blue"
+                }`}
+              />
+              {errors["brand"] && <p className="mt-1 text-[11px] text-ccb-red">{errors["brand"]}</p>}
+            </div>
+            {/* Template checkbox */}
+            <label className="flex cursor-pointer items-center gap-3 rounded-xl border border-ccb-border bg-white px-4 py-3 transition-colors hover:bg-ccb-canvas/60">
+              <div className={`flex h-5 w-5 shrink-0 items-center justify-center rounded border-2 transition-colors ${
+                useTemplate ? "border-ccb-blue bg-ccb-blue" : "border-ccb-border bg-white"
+              }`}>
+                {useTemplate && <svg viewBox="0 0 10 8" className="h-3 w-3 fill-none stroke-white stroke-2"><polyline points="1 4 4 7 9 1" /></svg>}
+              </div>
+              <input type="checkbox" checked={useTemplate} onChange={(e) => handleTemplateToggle(e.target.checked)} className="sr-only" />
+              <div>
+                <div className="text-[12.5px] font-semibold text-ccb-navy">Use Standard CNF Template</div>
+                <div className="text-[11px] text-ccb-muted">Auto-generates Collar, Name Plate, and Foot Ring with standard variants</div>
+              </div>
+            </label>
+          </div>
+
+          {/* Parts */}
+          <div className="space-y-3">
+            <div className="flex items-center gap-2">
+              <span className="h-4 w-1 rounded-sm bg-ccb-gold" />
+              <div className="text-[12.5px] font-bold text-ccb-navy">Parts</div>
+            </div>
+            {parts.map((part, pi) => (
+              <PartCard
+                key={part.id}
+                part={part}
+                partIndex={pi}
+                canDelete={parts.length > 1}
+                errors={errors}
+                onPartNameChange={(name) => updatePartName(part.id, name)}
+                onAddVariant={() => addVariant(part.id)}
+                onUpdateVariant={(varId, val) => updateVariant(part.id, varId, val)}
+                onRemoveVariant={(varId) => removeVariant(part.id, varId)}
+                onDelete={() => removePart(part.id)}
+              />
+            ))}
+            <button
+              onClick={addPart}
+              className="flex w-full items-center justify-center gap-2 rounded-xl border border-dashed border-ccb-border py-3 text-[12.5px] font-semibold text-ccb-muted transition-colors hover:border-ccb-blue hover:text-ccb-blue">
+              <Plus size={15} /> Add Another Part
+            </button>
+          </div>
+        </div>
+
+        {/* Footer */}
+        <div className="shrink-0 flex items-center justify-end gap-2 border-t border-ccb-border bg-ccb-canvas/60 px-6 py-4">
+          <button onClick={onClose} disabled={saving} className="rounded-lg border border-ccb-border bg-white px-5 py-2 text-[12.5px] font-semibold text-ccb-navy hover:bg-ccb-canvas disabled:opacity-50">
+            Cancel
+          </button>
+          <button onClick={handleSave} disabled={saving} className="rounded-lg bg-ccb-blue px-5 py-2 text-[12.5px] font-semibold text-white hover:bg-ccb-navy disabled:opacity-50">
+            {saving ? "Saving..." : "Save"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── PartCard ────────────────────────────────────────────────────────────────
+function PartCard({ part, partIndex, canDelete, errors, onPartNameChange, onAddVariant, onUpdateVariant, onRemoveVariant, onDelete }: {
+  part: NewPart;
+  partIndex: number;
+  canDelete: boolean;
+  errors: Record<string, string>;
+  onPartNameChange: (name: string) => void;
+  onAddVariant: () => void;
+  onUpdateVariant: (varId: string, val: string) => void;
+  onRemoveVariant: (varId: string) => void;
+  onDelete: () => void;
+}) {
+  return (
+    <div className="rounded-2xl border border-ccb-border bg-white p-5 space-y-4 shadow-sm">
+      {/* Part header */}
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <div className="grid h-6 w-6 place-items-center rounded-md bg-ccb-navy/10 text-[11px] font-bold text-ccb-navy">
+            {partIndex + 1}
+          </div>
+          <span className="text-[12px] font-bold uppercase tracking-wider text-ccb-navy">Part</span>
+        </div>
+        {canDelete && (
+          <button onClick={onDelete}
+            className="flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-semibold text-ccb-red/70 hover:bg-red-50 hover:text-ccb-red transition-colors">
+            <Trash2 size={13} /> Delete Part
+          </button>
+        )}
+      </div>
+
+      {/* Part name input */}
+      <div>
+        <label className="block text-[10px] font-semibold uppercase tracking-[0.14em] text-ccb-muted mb-1">
+          Part Name <span className="text-ccb-red">*</span>
+        </label>
+        <input
+          value={part.name}
+          onChange={(e) => onPartNameChange(e.target.value)}
+          placeholder="e.g. COLLAR, NAME PLATE, FOOT RING..."
+          className={`w-full rounded-lg border px-3 py-2.5 text-[13px] text-ccb-navy outline-none focus:ring-1 focus:ring-ccb-blue ${
+            errors[`part-${part.id}`] ? "border-ccb-red bg-red-50" : "border-ccb-border bg-white focus:border-ccb-blue"
+          }`}
+        />
+        {errors[`part-${part.id}`] && <p className="mt-1 text-[11px] text-ccb-red">{errors[`part-${part.id}`]}</p>}
+      </div>
+
+      {/* Variants */}
+      <div className="space-y-2">
+        <label className="block text-[10px] font-semibold uppercase tracking-[0.14em] text-ccb-muted">
+          Variants <span className="text-ccb-red">*</span>
+        </label>
+        {part.variants.map((v) => (
+          <VariantInput
+            key={v.id}
+            variantId={v.id}
+            value={v.value}
+            canDelete={part.variants.length > 1}
+            error={errors[`var-${v.id}`]}
+            onChange={(val) => onUpdateVariant(v.id, val)}
+            onRemove={() => onRemoveVariant(v.id)}
+          />
+        ))}
+        <button
+          onClick={onAddVariant}
+          className="flex items-center gap-1.5 rounded-md border border-dashed border-ccb-border px-3 py-1.5 text-[11.5px] font-semibold text-ccb-muted transition-colors hover:border-ccb-blue hover:text-ccb-blue">
+          <Plus size={13} /> Add Variant
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ─── VariantInput ─────────────────────────────────────────────────────────────
+function VariantInput({ variantId, value, canDelete, error, onChange, onRemove }: {
+  variantId: string;
+  value: string;
+  canDelete: boolean;
+  error?: string;
+  onChange: (val: string) => void;
+  onRemove: () => void;
+}) {
+  return (
+    <div className="space-y-0.5">
+      <div className="flex items-center gap-2">
+        <input
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder="e.g. 11kgs, 22kgs, RAPID..."
+          className={`flex-1 rounded-lg border px-3 py-2 text-[13px] text-ccb-navy outline-none focus:ring-1 focus:ring-ccb-blue ${
+            error ? "border-ccb-red bg-red-50" : "border-ccb-border bg-white focus:border-ccb-blue"
+          }`}
+        />
+        {canDelete && (
+          <button onClick={onRemove}
+            className="shrink-0 rounded-md p-1.5 text-ccb-muted hover:bg-red-50 hover:text-ccb-red transition-colors">
+            <Trash2 size={14} />
+          </button>
+        )}
+      </div>
+      {error && <p className="text-[11px] text-ccb-red">{error}</p>}
+    </div>
   );
 }

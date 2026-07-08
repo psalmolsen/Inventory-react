@@ -11,7 +11,8 @@ export type CnfItem = {
   date: string;
   currentBalance: number;
   outQuantity: number;
-  dateColumns: number[];
+  dateColumns: number[];  // days 1–31 (K–AO)
+  totalIssued: number;    // AP = sum of all daily issues
   tabName: string;
   rowNumber: number;
 };

@@ -52,13 +52,13 @@ export async function getCnfItems(tabName: string): Promise<CnfItem[]> {
     });
 
     const rows = res.data.values || [];
-    if (rows.length < 6) return [];
+    if (rows.length < 5) return [];
 
     const items: CnfItem[] = [];
     let currentBrand = "";
     let currentCategory: CnfItem["category"] = "OTHER";
 
-    for (let i = 5; i < rows.length; i++) {
+    for (let i = 4; i < rows.length; i++) {
       const row = rows[i];
 
       if (row[0] && row[0].trim()) {
@@ -85,9 +85,10 @@ export async function getCnfItems(tabName: string): Promise<CnfItem[]> {
       const outQuantity = parseFloat(row[9]) || 0;
 
       const dateColumns: number[] = [];
-      for (let col = 10; col < row.length; col++) {
+      for (let col = 10; col <= 40; col++) {          // K(10)–AO(40) = days 1–31
         dateColumns.push(parseFloat(row[col]) || 0);
       }
+      const totalIssued = parseFloat(row[41]) || 0;   // AP(41) = total issued
 
       items.push({
         brand: currentBrand,
@@ -101,6 +102,7 @@ export async function getCnfItems(tabName: string): Promise<CnfItem[]> {
         currentBalance,
         outQuantity,
         dateColumns,
+        totalIssued,
         tabName,
         rowNumber: i + 1,
       });
@@ -146,26 +148,32 @@ export async function updateCnfStockOut(
     const sheets = getSheetsClient();
     const res = await sheets.spreadsheets.values.get({
       spreadsheetId,
-      range: `${tabName}!I${rowNumber}:AZ${rowNumber}`,
+      range: `${tabName}!I${rowNumber}:AP${rowNumber}`,  // I=balance, J=out, K–AO=days 1–31, AP=total issued
     });
 
     const row = res.data.values?.[0] || [];
-    const currentBalance = parseFloat(row[0]) || 0;
-    const currentOut = parseFloat(row[1]) || 0;
+    const currentBalance = parseFloat(row[0]) || 0;  // I
+    const currentOut = parseFloat(row[1]) || 0;       // J
+    // row[2]–row[32] = K–AO = days 1–31  (dayIndex = day + 1)
     const dayIndex = day + 1;
     const currentDayOut = parseFloat(row[dayIndex]) || 0;
+    const currentTotal = parseFloat(row[33]) || 0;    // AP = total issued (index 33 in this slice)
 
     const newBalance = Math.max(0, currentBalance - qty);
     const newOut = currentOut + qty;
     const newDayOut = currentDayOut + qty;
+    const newTotal = currentTotal + qty;
 
+    // Pad array to cover all 34 positions (I through AP)
+    while (row.length < 34) row.push(0);
     row[0] = newBalance;
     row[1] = newOut;
     row[dayIndex] = newDayOut;
+    row[33] = newTotal;
 
     await sheets.spreadsheets.values.update({
       spreadsheetId,
-      range: `${tabName}!I${rowNumber}:AZ${rowNumber}`,
+      range: `${tabName}!I${rowNumber}:AP${rowNumber}`,
       valueInputOption: "RAW",
       requestBody: {
         values: [row],
@@ -204,6 +212,50 @@ export async function updateCnfItem(
           values.currentBalance,
           values.outQuantity,
         ]],
+      },
+    });
+  });
+}
+
+export async function addCnfItem(
+  tabName: string,
+  values: {
+    brand: string;
+    category: string;
+    variant: string;
+    uom: string;
+    price: number;
+    initialStock: number;
+    inQuantity: number;
+    date: string;
+    currentBalance: number;
+    outQuantity: number;
+  }
+): Promise<void> {
+  return withSheetsAuthError(async () => {
+    const sheets = getSheetsClient();
+    const row = [
+      values.brand,       // A - Brand
+      values.category,    // B - Parts
+      values.variant,     // C - Variant
+      values.uom,         // D - UOM
+      values.price,       // E - Price/Unit
+      values.initialStock,// F - Initial Stock
+      values.inQuantity,  // G - IN QUANTITY
+      values.date,        // H - Date
+      values.currentBalance, // I - Balance Qty
+      values.outQuantity, // J - Out QTY
+      ...Array.from({ length: 31 }, () => 0), // K–AO: days 1–31
+      0,                  // AP: Total Issued
+    ];
+
+    await sheets.spreadsheets.values.append({
+      spreadsheetId,
+      range: `${tabName}!A1:AZ1`,
+      valueInputOption: "RAW",
+      insertDataOption: "INSERT_ROWS",
+      requestBody: {
+        values: [row],
       },
     });
   });
