@@ -1,384 +1,174 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
-  Area,
-  AreaChart,
-  Bar,
-  BarChart,
-  Cell,
-  CartesianGrid,
-  Line,
-  LineChart,
-  Pie,
-  PieChart,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
+  Bar, BarChart, Cell, CartesianGrid,
+  Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from "recharts";
+import { Search, Plus, Download, ChevronDown, X } from "lucide-react";
 import { Sidebar } from "./Sidebar";
-import { getOringDataFn } from "../lib/oring-server-functions";
+import { getOringDataFn, getOringTabsFn, addOringRecordFn } from "../lib/oring-server-functions";
 import type { OringRecord } from "../lib/oring-sheets";
-import "./OringMonitoring.css";
 
-const COLORS = {
-  navy: "#1E2A78",
-  navyDark: "#141D57",
-  navySoft: "#EEF1FB",
-  gold: "#F5B400",
-  goldSoft: "#FFF4D2",
-  good: "#2E7D32",
-  goodSoft: "#E8F5E9",
-  reject: "#D32F2F",
-  rejectSoft: "#FDECEC",
-  warning: "#F57C00",
-  warningSoft: "#FFF3E0",
-  ink: "#23304D",
-  muted: "#6B7080",
-  faint: "#9AA0B1",
-  border: "#E4E7F2",
-  bg: "#F6F8FD",
-};
+// ─── Constants ────────────────────────────────────────────────────────────────
+const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+const PAGE_SIZE = 10;
 
-const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-const PAGE_SIZE = 8;
-
-// ─── KPI Card (same style as Material Monitoring) ───────────────────────────
-function CnfKpi({ label, value, unit, variant }: {
-  label: string; value: string; unit?: string;
-  variant: "shade1" | "shade2" | "shade3" | "shade4" | "shade5";
-}) {
-  const styles = {
-    shade1: "bg-[#2E3EA8] text-white",
-    shade2: "bg-[#29399A] text-white",
-    shade3: "bg-[#25348C] text-white",
-    shade4: "bg-[#202F76] text-white",
-    shade5: "bg-[#1A2560] text-white",
-  }[variant];
-  return (
-    <div className={`relative overflow-hidden rounded-2xl p-4 shadow-sm ${styles}`}>
-      <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-white/70">{label}</div>
-      <div className="mt-2 flex items-baseline gap-2">
-        <div className="text-[24px] font-extrabold leading-none">{value}</div>
-        {unit && <div className="text-[11px] font-semibold uppercase tracking-widest text-white/80">{unit}</div>}
-      </div>
-      <div className="pointer-events-none absolute -right-4 -bottom-4 h-16 w-16 rounded-full bg-white/5" />
-    </div>
-  );
-}
-
-type StatusTone = "good" | "warn" | "reject";
-
-function useCountUp(value: number, duration = 700) {
-  const [display, setDisplay] = useState(0);
-  const raf = useRef<number | null>(null);
-
-  useEffect(() => {
-    const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
-    if (reduceMotion) {
-      setDisplay(value);
-      return;
-    }
-
-    const start = performance.now();
-    const from = 0;
-    const to = value;
-
-    function tick(now: number) {
-      const progress = Math.min((now - start) / duration, 1);
-      const eased = 1 - Math.pow(1 - progress, 3);
-      setDisplay(Math.round(from + (to - from) * eased));
-      if (progress < 1) raf.current = requestAnimationFrame(tick);
-    }
-
-    raf.current = requestAnimationFrame(tick);
-    return () => {
-      if (raf.current) cancelAnimationFrame(raf.current);
-    };
-  }, [value, duration]);
-
-  return display;
-}
-
-function pctChange(current: number, previous: number) {
-  if (!previous) return 0;
-  return ((current - previous) / previous) * 100;
-}
-
-function initials(name: string) {
-  const value = name.trim();
-  if (!value) return "--";
-  return value
-    .split(/\s+/)
-    .map((word) => word[0])
-    .slice(0, 2)
-    .join("")
-    .toUpperCase();
-}
-
-function avatarGradient(index: number) {
-  const gradients = [
-    "linear-gradient(135deg,#F5B400,#C98F00)",
-    "linear-gradient(135deg,#1E2A78,#3B4CC0)",
-    "linear-gradient(135deg,#2E7D32,#4C9E50)",
-    "linear-gradient(135deg,#6B7080,#8C92A3)",
-  ];
-  return gradients[index % gradients.length];
-}
-
+// ─── Helpers ─────────────────────────────────────────────────────────────────
 function formatMonthLabel(monthKey: string) {
   if (!monthKey) return "";
   const [year, month] = monthKey.split("-");
-  const monthIndex = Number(month) - 1;
-  return `${MONTHS[monthIndex] || monthKey.slice(5, 7)} ${year}`;
+  return `${MONTHS[Number(month) - 1] || ""} ${year}`;
 }
 
 function formatDateLabel(dateKey: string) {
   if (!dateKey) return "";
   const date = new Date(`${dateKey}T00:00:00`);
   if (Number.isNaN(date.getTime())) return dateKey;
-  return date.toLocaleDateString("en-US", {
-    month: "short",
-    day: "2-digit",
-    year: "numeric",
-  });
+  return date.toLocaleDateString("en-US", { month: "short", day: "2-digit", year: "numeric" });
 }
 
-function formatDateTime(record: OringRecord) {
-  const date = formatDateLabel(record.dateKey || record.date);
-  return record.time ? `${date} • ${record.time}` : date;
+function sum(records: OringRecord[], key: keyof Pick<OringRecord,"valvesRepaired"|"good"|"reject">) {
+  return records.reduce((t, r) => t + (r[key] || 0), 0);
 }
 
+type StatusTone = "good" | "warn" | "reject";
 function getStatus(record: OringRecord): StatusTone {
   if (record.reject > 0) return "reject";
   if (record.valvesRepaired > 0) return "good";
   return "warn";
 }
 
-function sum(records: OringRecord[], key: keyof Pick<OringRecord, "valvesRepaired" | "good" | "reject">) {
-  return records.reduce((total, record) => total + (record[key] || 0), 0);
-}
-
-function groupCount(records: OringRecord[], getter: (record: OringRecord) => string) {
-  const map = new Map<string, number>();
-  for (const record of records) {
-    const key = getter(record).trim();
-    if (!key) continue;
-    map.set(key, (map.get(key) || 0) + 1);
-  }
-  return Array.from(map.entries())
-    .map(([label, count]) => ({ label, count }))
-    .sort((a, b) => b.count - a.count);
-}
-
-function groupMetric(records: OringRecord[], getter: (record: OringRecord) => string) {
-  const map = new Map<string, { label: string; repaired: number; good: number; reject: number; count: number }>();
-  for (const record of records) {
-    const label = getter(record).trim();
-    if (!label) continue;
-    const current = map.get(label) || { label, repaired: 0, good: 0, reject: 0, count: 0 };
-    current.repaired += record.valvesRepaired;
-    current.good += record.good;
-    current.reject += record.reject;
-    current.count += 1;
-    map.set(label, current);
-  }
-  return Array.from(map.values())
-    .map((item) => ({
-      ...item,
-      passRate: item.repaired ? (item.good / item.repaired) * 100 : 0,
-    }))
-    .sort((a, b) => b.repaired - a.repaired);
-}
-
-function monthIndexFromKey(monthKey: string) {
-  return monthKey ? Number(monthKey.split("-")[1]) - 1 : 0;
-}
-
-function timeBucket(time: string) {
-  const text = time.trim();
-  if (!text) return "Unspecified";
-  return text
-    .replace(/\s+/g, "")
-    .replace(/([ap]m)/gi, " $1")
-    .replace(/-/g, " - ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
 function inferRejectReason(remarks: string) {
-  const text = remarks.toLowerCase();
-  if (!text) return "Unspecified";
-  if (text.includes("leak")) return "Leak";
-  if (text.includes("wrong") || text.includes("size")) return "Wrong Size";
-  if (text.includes("damage") || text.includes("crack")) return "Damage";
-  if (text.includes("surface") || text.includes("scratch")) return "Surface Damage";
-  if (text.includes("pressure")) return "Pressure Test Failure";
-  if (text.includes("seal") || text.includes("groove")) return "Seal / Groove Issue";
+  const t = remarks.toLowerCase();
+  if (!t) return "Unspecified";
+  if (t.includes("leak")) return "Leak";
+  if (t.includes("wrong") || t.includes("size")) return "Wrong Size";
+  if (t.includes("damage") || t.includes("crack")) return "Damage";
+  if (t.includes("surface") || t.includes("scratch")) return "Surface Damage";
+  if (t.includes("pressure")) return "Pressure Test Failure";
+  if (t.includes("seal") || t.includes("groove")) return "Seal / Groove Issue";
   return "Other";
 }
 
-const Icon: Record<string, React.FC<React.SVGProps<SVGSVGElement>>> = {
-  Search: (p) => (
-    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" {...p}>
-      <circle cx="11" cy="11" r="7" />
-      <line x1="21" y1="21" x2="16.65" y2="16.65" />
-    </svg>
-  ),
-  Source: (p) => (
-    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" {...p}>
-      <path d="M3 3h18v3l-7 7v6l-4 2v-8L3 6z" />
-    </svg>
-  ),
-  User: (p) => (
-    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" {...p}>
-      <circle cx="12" cy="8" r="4" />
-      <path d="M4 21v-1a7 7 0 0 1 14 0v1" />
-    </svg>
-  ),
-  Calendar: (p) => (
-    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" {...p}>
-      <rect x="3" y="4" width="18" height="18" rx="2" />
-      <line x1="16" y1="2" x2="16" y2="6" />
-      <line x1="8" y1="2" x2="8" y2="6" />
-      <line x1="3" y1="10" x2="21" y2="10" />
-    </svg>
-  ),
-  Clock: (p) => (
-    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" {...p}>
-      <circle cx="12" cy="12" r="10" />
-      <polyline points="12 6 12 12 16 14" />
-    </svg>
-  ),
-  Check2: (p) => (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" {...p}>
-      <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
-      <polyline points="22 4 12 14.01 9 11.01" />
-    </svg>
-  ),
-  Reject: (p) => (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" {...p}>
-      <circle cx="12" cy="12" r="10" />
-      <line x1="15" y1="9" x2="9" y2="15" />
-      <line x1="9" y1="9" x2="15" y2="15" />
-    </svg>
-  ),
-  Wrench: (p) => (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" {...p}>
-      <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" />
-    </svg>
-  ),
-  Target: (p) => (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" {...p}>
-      <path d="M12 2v4M12 18v4M4.9 4.9l2.8 2.8M16.3 16.3l2.8 2.8M2 12h4M18 12h4M4.9 19.1l2.8-2.8M16.3 7.7l2.8-2.8" />
-    </svg>
-  ),
-  Filter: (p) => (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" {...p}>
-      <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
-    </svg>
-  ),
-  Warn: (p) => (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" {...p}>
-      <path d="M12 9v4M12 17h.01M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
-    </svg>
-  ),
-  Eye: (p) => (
-    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" {...p}>
-      <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
-      <circle cx="12" cy="12" r="3" />
-    </svg>
-  ),
-  Edit: (p) => (
-    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" {...p}>
-      <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
-      <path d="M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
-    </svg>
-  ),
-};
+function useCountUp(value: number, duration = 700) {
+  const [display, setDisplay] = useState(0);
+  const raf = useRef<number | null>(null);
+  useEffect(() => {
+    const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    if (reduceMotion) { setDisplay(value); return; }
+    const start = performance.now();
+    function tick(now: number) {
+      const progress = Math.min((now - start) / duration, 1);
+      const eased = 1 - Math.pow(1 - progress, 3);
+      setDisplay(Math.round(eased * value));
+      if (progress < 1) raf.current = requestAnimationFrame(tick);
+    }
+    raf.current = requestAnimationFrame(tick);
+    return () => { if (raf.current) cancelAnimationFrame(raf.current); };
+  }, [value, duration]);
+  return display;
+}
 
-function StatCard({
-  label,
-  value,
-  change,
-  icon: IconComp,
-  tone,
-}: {
-  label: string;
-  value: string;
-  change: React.ReactNode;
-  icon: React.FC<React.SVGProps<SVGSVGElement>>;
-  tone: "navy" | "good" | "reject" | "gold";
+// ─── KPI Card ────────────────────────────────────────────────────────────────
+function KpiCard({ label, value, unit, variant }: {
+  label: string; value: string; unit?: string;
+  variant: "blue" | "blue2" | "blue3" | "navy";
 }) {
+  const bg = { blue:"bg-[#2E3EA8]", blue2:"bg-[#273690]", blue3:"bg-[#202D78]", navy:"bg-[#1A2560]" }[variant];
   return (
-    <div className="orm-stat">
-      <div className="orm-stat-top">
-        <div className="orm-stat-label">{label}</div>
-        <div className={`orm-stat-icon ${tone}`}>
-          <IconComp />
-        </div>
+    <div className={`relative overflow-hidden rounded-2xl p-5 shadow-sm ${bg} text-white`}>
+      <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-white/70">{label}</div>
+      <div className="mt-3 flex items-baseline gap-2">
+        <div className="text-[30px] font-extrabold leading-none">{value}</div>
+        {unit && <div className="text-[12px] font-semibold uppercase tracking-widest text-white/80">{unit}</div>}
       </div>
-      <div className="orm-stat-value">{value}</div>
-      <div className="orm-stat-change">{change}</div>
+      <div className="pointer-events-none absolute -right-6 -bottom-6 h-24 w-24 rounded-full bg-white/5" />
     </div>
   );
 }
 
-function TrendBadge({ pct }: { pct: number }) {
-  const up = pct >= 0;
-  return <span className={`orm-chip ${up ? "good" : "reject"}`}>{up ? "▲" : "▼"} {Math.abs(pct).toFixed(1)}% vs previous month</span>;
-}
-
-function SectionTitle({ title, subtitle }: { title: string; subtitle?: string }) {
+// ─── Efficiency Card ─────────────────────────────────────────────────────────
+function EfficiencyCard({ rate }: { rate: number }) {
+  const tone = rate >= 90 ? "good" : rate >= 75 ? "warn" : "reject";
+  const colors = {
+    good:  { bg: "bg-[#1A2560]", badge: "bg-green-500/20 text-green-300",  label: "Excellent"       },
+    warn:  { bg: "bg-[#1A2560]", badge: "bg-yellow-500/20 text-yellow-300", label: "Warning"         },
+    reject:{ bg: "bg-[#1A2560]", badge: "bg-red-500/20 text-red-300",       label: "Needs Attention" },
+  }[tone];
   return (
-    <div className="orm-section">
-      <div>
-        <div className="orm-section-kicker">O-Ring Monitoring</div>
-        <h1 className="orm-title">{title}</h1>
-        {subtitle ? <p className="orm-subtitle">{subtitle}</p> : null}
+    <div className={`relative overflow-hidden rounded-2xl p-5 shadow-sm ${colors.bg} text-white ring-2 ring-white/10`}>
+      <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-white/70">Efficiency Rate</div>
+      <div className="mt-3 flex items-baseline gap-2">
+        <div className="text-[34px] font-extrabold leading-none">{rate.toFixed(1)}</div>
+        <div className="text-[14px] font-semibold text-white/80">%</div>
       </div>
-      <div className="orm-page-badge">
-        <span className="dot" />
-        Live sheet sync
-      </div>
+      <span className={`mt-2 inline-block rounded-full px-2.5 py-0.5 text-[10px] font-bold ${colors.badge}`}>
+        {colors.label}
+      </span>
+      <div className="pointer-events-none absolute -right-6 -bottom-6 h-28 w-28 rounded-full bg-white/5" />
     </div>
   );
 }
 
+// ─── Custom Tooltip ──────────────────────────────────────────────────────────
+function ChartTooltip({ active, payload, label }: any) {
+  if (!active || !payload?.length) return null;
+  return (
+    <div className="rounded-xl bg-[#1A2560] px-3 py-2 text-xs text-white shadow-lg">
+      <p className="font-bold">{label}</p>
+      {payload.map((p: any) => (
+        <p key={p.dataKey} className="text-white/80">{p.name ?? p.dataKey}: <b className="text-white">{p.value}</b></p>
+      ))}
+    </div>
+  );
+}
+
+// ─── Main Component ──────────────────────────────────────────────────────────
 export default function OringMonitoring() {
+  const qc = useQueryClient();
   const { data: records = [], isLoading, error } = useQuery({
     queryKey: ["oring-records", "all"],
     queryFn: () => getOringDataFn({ data: "All" }),
+    staleTime: 1000 * 60 * 2,   // treat data as fresh for 2 minutes
+    refetchOnWindowFocus: false, // don't re-fetch when tab regains focus
+  });
+
+  // Fetch actual sheet tab names so the save goes to the right tab
+  const { data: sheetTabs = [] } = useQuery({
+    queryKey: ["oring-tabs"],
+    queryFn: () => getOringTabsFn(),
+    staleTime: 1000 * 60 * 10,
+    refetchOnWindowFocus: false,
   });
 
   const [selectedMonth, setSelectedMonth] = useState("All");
+  const [chartView, setChartView] = useState<"Monthly" | "Quarterly" | "Yearly">("Monthly");
   const [page, setPage] = useState(1);
-  const [filters, setFilters] = useState({
-    source: "",
-    installedTo: "",
-    remarks: "",
-    status: "All Status",
-  });
+  const [filters, setFilters] = useState({ status: "All Status" });
+  const [tableView, setTableView] = useState<"Monthly" | "Quarterly" | "Yearly">("Monthly");
+  const [search, setSearch] = useState("");
+  const [addOpen, setAddOpen] = useState(false);
   const monthInitialized = useRef(false);
 
-  const allRecords = useMemo(() => {
-    return [...records].sort((a, b) => {
-      if (a.dateKey !== b.dateKey) return b.dateKey.localeCompare(a.dateKey);
-      if (a.timeSort !== b.timeSort) return b.timeSort - a.timeSort;
-      return b.rowNumber - a.rowNumber;
-    });
-  }, [records]);
+  const addRecord = useMutation({
+    mutationFn: (d: Parameters<typeof addOringRecordFn>[0]["data"]) =>
+      addOringRecordFn({ data: d }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["oring-records", "all"] });
+      setAddOpen(false);
+    },
+  });
+
+  const allRecords = useMemo(() => [...records].sort((a, b) => {
+    if (a.dateKey !== b.dateKey) return b.dateKey.localeCompare(a.dateKey);
+    if (a.timeSort !== b.timeSort) return b.timeSort - a.timeSort;
+    return b.rowNumber - a.rowNumber;
+  }), [records]);
 
   const monthOptions = useMemo(() => {
     const map = new Map<string, string>();
-    for (const record of allRecords) {
-      if (record.monthKey && !map.has(record.monthKey)) {
-        map.set(record.monthKey, formatMonthLabel(record.monthKey));
-      }
-    }
-    return Array.from(map.entries())
-      .sort(([a], [b]) => a.localeCompare(b))
-      .map(([key, label]) => ({ key, label }));
+    for (const r of allRecords) if (r.monthKey && !map.has(r.monthKey)) map.set(r.monthKey, formatMonthLabel(r.monthKey));
+    return Array.from(map.entries()).sort(([a],[b]) => a.localeCompare(b)).map(([key, label]) => ({ key, label }));
   }, [allRecords]);
 
   useEffect(() => {
@@ -388,603 +178,720 @@ export default function OringMonitoring() {
     }
   }, [monthOptions]);
 
-  const latestMonthKey = monthOptions[monthOptions.length - 1]?.key || "";
-  const focusMonthKey = selectedMonth === "All" ? latestMonthKey : selectedMonth;
+  const focusMonthKey = selectedMonth === "All" ? (monthOptions[monthOptions.length - 1]?.key || "") : selectedMonth;
 
-  const focusRecords = useMemo(() => {
-    if (!focusMonthKey) return allRecords;
-    return allRecords.filter((record) => record.monthKey === focusMonthKey);
-  }, [allRecords, focusMonthKey]);
-
-  const previousMonthKey = useMemo(() => {
-    if (!focusMonthKey) return "";
-    const index = monthOptions.findIndex((option) => option.key === focusMonthKey);
-    return index > 0 ? monthOptions[index - 1].key : "";
-  }, [focusMonthKey, monthOptions]);
-
-  const previousMonthRecords = useMemo(() => {
-    if (!previousMonthKey) return [];
-    return allRecords.filter((record) => record.monthKey === previousMonthKey);
-  }, [allRecords, previousMonthKey]);
+  const focusRecords = useMemo(() =>
+    focusMonthKey ? allRecords.filter(r => r.monthKey === focusMonthKey) : allRecords,
+  [allRecords, focusMonthKey]);
 
   const totalRepaired = useMemo(() => sum(focusRecords, "valvesRepaired"), [focusRecords]);
-  const totalGood = useMemo(() => sum(focusRecords, "good"), [focusRecords]);
-  const totalReject = useMemo(() => sum(focusRecords, "reject"), [focusRecords]);
+  const totalGood     = useMemo(() => sum(focusRecords, "good"),           [focusRecords]);
+  const totalReject   = useMemo(() => sum(focusRecords, "reject"),         [focusRecords]);
   const passRate = totalRepaired ? (totalGood / totalRepaired) * 100 : 0;
 
-  const prevTotalRepaired = useMemo(() => sum(previousMonthRecords, "valvesRepaired"), [previousMonthRecords]);
-  const prevTotalGood = useMemo(() => sum(previousMonthRecords, "good"), [previousMonthRecords]);
-  const prevTotalReject = useMemo(() => sum(previousMonthRecords, "reject"), [previousMonthRecords]);
-
-  const totalDisplay = useCountUp(totalRepaired);
-  const goodDisplay = useCountUp(totalGood);
+  const totalDisplay  = useCountUp(totalRepaired);
+  const goodDisplay   = useCountUp(totalGood);
   const rejectDisplay = useCountUp(totalReject);
 
-  const totalPct = pctChange(totalRepaired, prevTotalRepaired);
-  const goodPct = pctChange(totalGood, prevTotalGood);
-  const rejectPct = pctChange(totalReject, prevTotalReject);
-
-  const currentLabel = selectedMonth === "All" ? "All records" : formatMonthLabel(focusMonthKey);
-
+  // Daily bar chart data
   const trendData = useMemo(() => {
     const map = new Map<string, { day: string; repaired: number; good: number; reject: number }>();
-    for (const record of focusRecords) {
-      const existing = map.get(record.dateKey) || {
-        day: formatDateLabel(record.dateKey),
-        repaired: 0,
-        good: 0,
-        reject: 0,
-      };
-      existing.repaired += record.valvesRepaired;
-      existing.good += record.good;
-      existing.reject += record.reject;
-      map.set(record.dateKey, existing);
+    for (const r of focusRecords) {
+      const ex = map.get(r.dateKey) || { day: formatDateLabel(r.dateKey), repaired: 0, good: 0, reject: 0 };
+      ex.repaired += r.valvesRepaired; ex.good += r.good; ex.reject += r.reject;
+      map.set(r.dateKey, ex);
     }
-    return Array.from(map.entries())
-      .sort(([a], [b]) => a.localeCompare(b))
-      .map(([, value]) => value);
+    return Array.from(map.entries()).sort(([a],[b]) => a.localeCompare(b)).map(([,v]) => v);
   }, [focusRecords]);
 
-  const sourceDistribution = useMemo(
-    () => groupCount(focusRecords, (record) => record.valveCameFrom),
-    [focusRecords]
-  );
-
-  const installedDistribution = useMemo(
-    () => groupMetric(focusRecords, (record) => record.installedTo),
-    [focusRecords]
-  );
-
-  const shiftPerformance = useMemo(() => {
-    const map = new Map<string, number>();
-    for (const record of focusRecords) {
-      const bucket = timeBucket(record.time);
-      map.set(bucket, (map.get(bucket) || 0) + record.valvesRepaired);
-    }
-    return Array.from(map.entries())
-      .map(([shift, repaired]) => ({ shift, repaired }))
-      .sort((a, b) => b.repaired - a.repaired);
-  }, [focusRecords]);
-
-  const monthlySummary = useMemo(() => {
-    const map = new Map<string, number>();
-    for (const record of allRecords) {
-      if (!record.monthKey) continue;
-      map.set(record.monthKey, (map.get(record.monthKey) || 0) + record.valvesRepaired);
-    }
-    return Array.from(map.entries())
-      .sort(([a], [b]) => a.localeCompare(b))
-      .map(([month, repaired]) => ({ month: formatMonthLabel(month), repaired }));
-  }, [allRecords]);
-
+  // Reject reasons
   const rejectReasons = useMemo(() => {
     const map = new Map<string, number>();
-    for (const record of focusRecords) {
-      if (record.reject <= 0) continue;
-      const reason = inferRejectReason(record.remarks);
-      map.set(reason, (map.get(reason) || 0) + record.reject);
+    for (const r of focusRecords) {
+      if (r.reject <= 0) continue;
+      const reason = inferRejectReason(r.remarks);
+      map.set(reason, (map.get(reason) || 0) + r.reject);
     }
-    return Array.from(map.entries())
-      .map(([reason, count]) => ({ reason, count }))
-      .sort((a, b) => b.count - a.count)
-      .slice(0, 5);
+    return Array.from(map.entries()).map(([reason, count]) => ({ reason, count }))
+      .sort((a,b) => b.count - a.count).slice(0, 5);
   }, [focusRecords]);
 
-  const visibleRecords = useMemo(() => {
-    return focusRecords.filter((record) => {
-      if (filters.source && !record.valveCameFrom.toLowerCase().includes(filters.source.toLowerCase())) return false;
-      if (filters.installedTo && !record.installedTo.toLowerCase().includes(filters.installedTo.toLowerCase())) return false;
-      if (filters.remarks && !record.remarks.toLowerCase().includes(filters.remarks.toLowerCase())) return false;
-      if (filters.status !== "All Status") {
-        const status = getStatus(record);
-        if (filters.status === "Completed" && status !== "good") return false;
-        if (filters.status === "Has Reject" && status !== "reject") return false;
-        if (filters.status === "Pending Review" && status === "good") return false;
+  // ── Chart panel data — driven by chartView (Monthly / Quarterly / Yearly) ──
+  const chartBarData = useMemo(() => {
+    if (chartView === "Monthly") {
+      // Group all records by month
+      const map = new Map<string, number>();
+      for (const r of allRecords) {
+        if (!r.monthKey) continue;
+        map.set(r.monthKey, (map.get(r.monthKey) || 0) + r.valvesRepaired);
       }
-      return true;
-    });
-  }, [focusRecords, filters]);
+      return Array.from(map.entries())
+        .sort(([a],[b]) => a.localeCompare(b))
+        .map(([key, repaired]) => ({ label: formatMonthLabel(key), repaired }));
+    }
+    if (chartView === "Quarterly") {
+      const map = new Map<string, number>();
+      for (const r of allRecords) {
+        if (!r.monthKey) continue;
+        const [year, month] = r.monthKey.split("-");
+        const q = Math.ceil(Number(month) / 3);
+        const key = `${year} Q${q}`;
+        map.set(key, (map.get(key) || 0) + r.valvesRepaired);
+      }
+      return Array.from(map.entries())
+        .sort(([a],[b]) => a.localeCompare(b))
+        .map(([label, repaired]) => ({ label, repaired }));
+    }
+    // Yearly
+    const map = new Map<string, number>();
+    for (const r of allRecords) {
+      if (!r.monthKey) continue;
+      const year = r.monthKey.slice(0, 4);
+      map.set(year, (map.get(year) || 0) + r.valvesRepaired);
+    }
+    return Array.from(map.entries())
+      .sort(([a],[b]) => a.localeCompare(b))
+      .map(([label, repaired]) => ({ label, repaired }));
+  }, [allRecords, chartView]);
 
-  useEffect(() => {
-    setPage(1);
-  }, [selectedMonth, filters]);
+  const chartDonutData = useMemo(() => {
+    // Filter allRecords to only the period shown in the bar chart
+    let pool = allRecords;
+    if (chartView === "Monthly") {
+      // Use the currently selected month (or latest)
+      pool = focusMonthKey ? allRecords.filter(r => r.monthKey === focusMonthKey) : allRecords;
+    } else if (chartView === "Quarterly") {
+      // Use current quarter
+      const now = new Date();
+      const curQ = Math.ceil((now.getMonth() + 1) / 3);
+      const curYear = now.getFullYear();
+      pool = allRecords.filter(r => {
+        if (!r.monthKey) return false;
+        const [y, m] = r.monthKey.split("-");
+        return Number(y) === curYear && Math.ceil(Number(m) / 3) === curQ;
+      });
+      if (pool.length === 0) pool = allRecords; // fallback to all
+    }
+    // Yearly = all records
+    const g = sum(pool, "good");
+    const rej = sum(pool, "reject");
+    return { good: g, reject: rej, rate: (g + rej) > 0 ? (g / (g + rej)) * 100 : 0 };
+  }, [allRecords, chartView, focusMonthKey]);
+
+  // Filtered table rows
+  // Records filtered by tableView period + search
+  const tableRecords = useMemo(() => {
+    let pool = allRecords;
+    if (tableView === "Monthly") {
+      pool = focusMonthKey ? allRecords.filter(r => r.monthKey === focusMonthKey) : allRecords;
+    } else if (tableView === "Quarterly") {
+      const now = new Date();
+      const curQ = Math.ceil((now.getMonth() + 1) / 3);
+      const curYear = now.getFullYear();
+      const filtered = allRecords.filter(r => {
+        if (!r.monthKey) return false;
+        const [y, m] = r.monthKey.split("-");
+        return Number(y) === curYear && Math.ceil(Number(m) / 3) === curQ;
+      });
+      pool = filtered.length > 0 ? filtered : allRecords;
+    }
+    // Yearly = all records (pool stays allRecords)
+    return pool;
+  }, [allRecords, tableView, focusMonthKey]);
+
+  const visibleRecords = useMemo(() => tableRecords.filter(r => {
+    if (search && !(r.valveCameFrom + r.installedTo + r.remarks + r.date).toLowerCase().includes(search.toLowerCase())) return false;
+    return true;
+  }), [tableRecords, search]);
+
+  useEffect(() => { setPage(1); }, [selectedMonth, tableView, search]);
 
   const totalPages = Math.max(1, Math.ceil(visibleRecords.length / PAGE_SIZE));
-  const pagedRows = visibleRecords.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  const pagedRows  = visibleRecords.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
-  const peakShift = shiftPerformance[0];
-  const topInstaller = installedDistribution[0];
-
-  const loadingText = isLoading ? "Loading O-Ring data..." : "";
   const displayError = error instanceof Error ? error : null;
+  const currentLabel = selectedMonth === "All" ? "All Data" : formatMonthLabel(focusMonthKey);
+
+  const donutData = [
+    { name: "Good",   value: totalGood   },
+    { name: "Reject", value: totalReject },
+  ];
 
   return (
-    <div className="min-h-screen bg-ccb-canvas">
-      <div className="flex min-h-screen bg-white">
+    <div className="h-screen bg-ccb-canvas overflow-hidden">
+      <div className="flex h-full bg-white">
         <Sidebar />
-        <div className="flex-1 min-h-screen lg:pl-0 pl-0">
-          <div className="orm-page">
-            <SectionTitle
-              title="Sheet-backed repair tracking for O-Ring monitoring"
-              subtitle="Every chart and row below is pulled from the Google Sheet, so the dashboard now reflects the real records instead of mock data."
-            />
+        <div className="flex-1 flex flex-col h-full overflow-hidden">
 
-            <div className="orm-shell">
-        <div className="orm-hero">
-          <div className="orm-hero-copy">
-            <div className="orm-hero-kicker">Live source</div>
-            <div className="orm-hero-title">Repair quality overview for {selectedMonth === "All" ? "all available data" : currentLabel}</div>
-            <div className="orm-hero-text">
-              The layout stays review-friendly, but the numbers now come directly from the sheet columns:
-              date, time, valve came from, valves repaired, installed to, good, reject, and remarks.
+          {/* ── Header ── */}
+          <div className="bg-white border-b border-ccb-border shrink-0">
+            <div className="flex items-center justify-between px-8 py-4 gap-4 flex-wrap">
+              <div>
+                <h1 className="text-[18px] font-bold leading-tight text-ccb-navy">O-Ring Report</h1>
+                <p className="text-[12px] text-ccb-muted">Monitor, Track, and Manage O-Ring Installation Activities</p>
+              </div>
+              <div className="flex items-center gap-3 flex-wrap">
+                {/* Month selector */}
+                <div className="relative">
+                  <select
+                    value={selectedMonth}
+                    onChange={e => { setSelectedMonth(e.target.value); setPage(1); }}
+                    className="appearance-none rounded-lg border border-ccb-border bg-white pl-3 pr-8 py-2 text-[12.5px] font-semibold text-ccb-navy outline-none focus:border-ccb-blue"
+                  >
+                    <option value="All">All Months</option>
+                    {monthOptions.map(o => <option key={o.key} value={o.key}>{o.label}</option>)}
+                  </select>
+                  <ChevronDown size={14} className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-ccb-muted" />
+                </div>
+                {/* Search */}
+                <div className="relative">
+                  <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-ccb-muted pointer-events-none" />
+                  <input
+                    value={search}
+                    onChange={e => setSearch(e.target.value)}
+                    placeholder="Search records..."
+                    className="pl-9 pr-3 py-2 rounded-lg border border-ccb-border text-[12.5px] text-ccb-navy placeholder:text-ccb-muted-2 outline-none focus:border-ccb-blue w-48"
+                  />
+                </div>
+                <button className="flex items-center gap-1.5 rounded-lg border border-ccb-border bg-white px-3 py-2 text-[12.5px] font-semibold text-ccb-navy hover:bg-ccb-canvas transition">
+                  <Download size={14} /> Export
+                </button>
+                <button
+                  onClick={() => setAddOpen(true)}
+                  className="flex items-center gap-1.5 rounded-lg bg-ccb-blue px-3 py-2 text-[12.5px] font-semibold text-white hover:bg-ccb-navy transition">
+                  <Plus size={14} /> Add Record
+                </button>
+              </div>
             </div>
+            <div className="h-[3px] bg-ccb-red" />
           </div>
-          <div className="orm-hero-metrics">
-            <div className="orm-hero-metric">
-              <span>Pass rate</span>
-              <strong>{passRate.toFixed(1)}%</strong>
-            </div>
-            <div className="orm-hero-metric">
-              <span>Top installed to</span>
-              <strong>{topInstaller?.label || "No data"}</strong>
-            </div>
-            <div className="orm-hero-metric">
-              <span>Peak time window</span>
-              <strong>{peakShift?.shift || "No data"}</strong>
-            </div>
-          </div>
-        </div>
 
-        <div className="orm-month-nav">
-          <button className={`orm-month-pill all ${selectedMonth === "All" ? "active" : ""}`} onClick={() => setSelectedMonth("All")}>
-            All
-          </button>
-          {monthOptions.map((option) => (
-            <button
-              key={option.key}
-              className={`orm-month-pill ${selectedMonth === option.key ? "active" : ""}`}
-              onClick={() => setSelectedMonth(option.key)}
-            >
-              {option.label}
-            </button>
-          ))}
-        </div>
-
-        <div className="orm-kpi-row">
-          <CnfKpi variant="shade1" label="Total Valves Repaired" value={totalDisplay.toLocaleString()} />
-          <CnfKpi variant="shade2" label="Good" value={goodDisplay.toLocaleString()} />
-          <CnfKpi variant="shade3" label="Reject" value={rejectDisplay.toLocaleString()} />
-          <CnfKpi variant="shade4" label="Quality Efficiency" value={passRate.toFixed(1)} unit="%" />
-        </div>
+          {/* ── Scrollable body ── */}
+          <div className="flex-1 overflow-y-auto bg-ccb-canvas">
+            <div className="p-7 space-y-5">
 
               {isLoading ? (
-          <div className="orm-panel">
-            <div className="orm-panel-title">{loadingText}</div>
-          </div>
+                <div className="flex items-center justify-center h-48">
+                  <p className="text-ccb-muted animate-pulse">Loading O-Ring data...</p>
+                </div>
               ) : displayError ? (
-          <div className="orm-panel">
-            <div className="orm-panel-title">Failed to load O-Ring data</div>
-            <div className="orm-panel-sub">{displayError.message}</div>
-          </div>
-              ) : allRecords.length === 0 ? (
-          <div className="orm-panel">
-            <div className="orm-panel-title">No O-Ring rows found</div>
-            <div className="orm-panel-sub">
-              Check that the spreadsheet id is correct, the service account has access, and the sheet contains data under the headers.
-            </div>
-          </div>
+                <div className="flex items-center justify-center h-48">
+                  <p className="text-ccb-red text-sm max-w-lg text-center">Failed to load O-Ring data: {displayError.message}</p>
+                </div>
               ) : (
-          <>
-            <div className="orm-grid-2">
-              <div className="orm-panel">
-                <div className="orm-panel-head">
-                  <div>
-                    <div className="orm-panel-title">Production Trend</div>
-                    <div className="orm-panel-sub">
-                      Daily repair totals for {selectedMonth === "All" ? "the latest available month" : currentLabel}
-                    </div>
+                <>
+                  {/* ── KPI Cards ── */}
+                  <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
+                    <KpiCard variant="blue"  label="Total O-Rings Installed" value={totalDisplay.toLocaleString()} />
+                    <KpiCard variant="blue2" label="Good O-Rings"            value={goodDisplay.toLocaleString()} />
+                    <KpiCard variant="blue3" label="Reject O-Rings"          value={rejectDisplay.toLocaleString()} />
+                    <EfficiencyCard rate={passRate} />
                   </div>
-                  <div className="orm-panel-tag orm-tag-navy">trendline</div>
-                </div>
-                <ResponsiveContainer width="100%" height={240}>
-                  <LineChart data={trendData}>
-                    <defs>
-                      <linearGradient id="trendFill" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor={COLORS.navy} stopOpacity={0.22} />
-                        <stop offset="100%" stopColor={COLORS.navy} stopOpacity={0} />
-                      </linearGradient>
-                    </defs>
-                    <CartesianGrid vertical={false} stroke={COLORS.border} />
-                    <XAxis dataKey="day" tick={{ fontSize: 11, fill: COLORS.muted }} axisLine={false} tickLine={false} />
-                    <YAxis tick={{ fontSize: 11, fill: COLORS.muted }} axisLine={false} tickLine={false} />
-                    <Tooltip contentStyle={{ background: COLORS.navy, border: "none", borderRadius: 12, color: "#fff" }} labelStyle={{ color: "#fff" }} />
-                    <Area type="monotone" dataKey="repaired" stroke="none" fill="url(#trendFill)" />
-                    <Line type="monotone" dataKey="repaired" stroke={COLORS.navy} strokeWidth={3} dot={false} activeDot={{ r: 5, fill: COLORS.navy, stroke: "#fff", strokeWidth: 2 }} />
-                  </LineChart>
-                </ResponsiveContainer>
-              </div>
 
-              <div className="orm-panel">
-                <div className="orm-panel-head">
-                  <div>
-                    <div className="orm-panel-title">Quality Split</div>
-                    <div className="orm-panel-sub">Good vs reject and the main reject reasons</div>
-                  </div>
-                  <div className="orm-panel-tag orm-tag-gold">pass rate</div>
-                </div>
-                <div className="orm-split">
-                  <div className="orm-donut-wrap">
-                    <ResponsiveContainer width="100%" height={210}>
-                      <PieChart>
-                        <Pie
-                          data={[
-                            { name: "Good", value: totalGood },
-                            { name: "Reject", value: totalReject },
-                          ]}
-                          dataKey="value"
-                          innerRadius="72%"
-                          outerRadius="100%"
-                          startAngle={90}
-                          endAngle={-270}
+                  {/* ── Dashboard Charts — unified parent panel ── */}
+                  <div className="rounded-2xl bg-white border border-ccb-border shadow-sm overflow-hidden">
+                    {/* Parent header with dropdown */}
+                    <div className="flex items-center justify-between px-5 py-4 border-b border-ccb-border">
+                      <div>
+                        <h3 className="text-[13.5px] font-bold text-ccb-navy">Production Overview</h3>
+                        <p className="text-[11px] text-ccb-muted mt-0.5">O-Ring installations and quality breakdown</p>
+                      </div>
+                      <div className="relative">
+                        <select
+                          value={chartView}
+                          onChange={e => setChartView(e.target.value as "Monthly" | "Quarterly" | "Yearly")}
+                          className="appearance-none rounded-lg border border-ccb-border bg-ccb-canvas pl-3 pr-8 py-2 text-[12.5px] font-semibold text-ccb-navy outline-none focus:border-ccb-blue"
                         >
-                          <Cell fill={COLORS.good} />
-                          <Cell fill={COLORS.reject} />
-                        </Pie>
-                        <Tooltip contentStyle={{ background: COLORS.navy, border: "none", borderRadius: 12, color: "#fff" }} />
-                      </PieChart>
-                    </ResponsiveContainer>
-                    <div className="orm-donut-center">
-                      <div className="orm-pct">{passRate.toFixed(1)}%</div>
-                      <div className="orm-cap">Good rate</div>
-                    </div>
-                  </div>
-                  <div className="orm-legend-stack">
-                    <div className="orm-legend-row">
-                      <span className="orm-legend-dot" style={{ background: COLORS.good }} />
-                      <span>Good</span>
-                      <b>{totalGood}</b>
-                    </div>
-                    <div className="orm-legend-row">
-                      <span className="orm-legend-dot" style={{ background: COLORS.reject }} />
-                      <span>Reject</span>
-                      <b>{totalReject}</b>
-                    </div>
-                    <div className="orm-reason-list">
-                      {rejectReasons.map((reason, index) => (
-                        <div className="orm-reason" key={reason.reason}>
-                          <span className="orm-legend-dot" style={{ background: [COLORS.reject, COLORS.warning, COLORS.navy, COLORS.gold, COLORS.faint][index % 5] }} />
-                          <span>{reason.reason}</span>
-                          <b>{reason.count}</b>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div className="orm-grid-2">
-              <div className="orm-panel">
-                <div className="orm-panel-head">
-                  <div>
-                    <div className="orm-panel-title">Installed To Distribution</div>
-                    <div className="orm-panel-sub">Where the repaired o-rings ended up</div>
-                  </div>
-                  <div className="orm-panel-tag orm-tag-good">top ranked</div>
-                </div>
-                {installedDistribution.slice(0, 5).map((item, index) => (
-                  <div className="orm-rank-row" key={item.label}>
-                    <div className={`orm-rank-num ${index === 0 ? "top" : ""}`}>#{index + 1}</div>
-                    <div className="orm-rank-avatar" style={{ background: avatarGradient(index) }}>
-                      {initials(item.label)}
-                    </div>
-                    <div className="orm-rank-info">
-                      <div className="orm-rank-name">{item.label}</div>
-                      <div className="orm-rank-bar-track">
-                        <div className="orm-rank-bar-fill" style={{ width: `${installedDistribution[0]?.repaired ? (item.repaired / installedDistribution[0].repaired) * 100 : 0}%` }} />
-                      </div>
-                      <div className="orm-rank-meta">
-                        {item.repaired} repaired • {item.good} good • {item.reject} reject
+                          <option value="Monthly">Monthly</option>
+                          <option value="Quarterly">Quarterly</option>
+                          <option value="Yearly">Yearly</option>
+                        </select>
+                        <ChevronDown size={14} className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-ccb-muted" />
                       </div>
                     </div>
-                    <div className="orm-rank-pct">{item.passRate.toFixed(0)}%</div>
-                  </div>
-                ))}
-              </div>
 
-              <div className="orm-panel">
-                <div className="orm-panel-head">
-                  <div>
-                    <div className="orm-panel-title">Source Distribution</div>
-                    <div className="orm-panel-sub">Where the valve repairs are coming from</div>
-                  </div>
-                  <div className="orm-panel-tag orm-tag-navy">by source</div>
-                </div>
-                <ResponsiveContainer width="100%" height={240}>
-                  <BarChart data={sourceDistribution} layout="vertical" margin={{ left: 10 }}>
-                    <CartesianGrid horizontal={false} stroke={COLORS.border} />
-                    <XAxis type="number" tick={{ fontSize: 11, fill: COLORS.muted }} axisLine={false} tickLine={false} />
-                    <YAxis type="category" dataKey="label" width={110} tick={{ fontSize: 12, fill: COLORS.ink }} axisLine={false} tickLine={false} />
-                    <Tooltip contentStyle={{ background: COLORS.navy, border: "none", borderRadius: 12, color: "#fff" }} cursor={{ fill: COLORS.navySoft }} />
-                    <Bar dataKey="count" radius={[0, 10, 10, 0]} barSize={22}>
-                      {sourceDistribution.map((_, index) => (
-                        <Cell key={index} fill={[COLORS.navy, "#3246A6", "#6A77D8", COLORS.gold][index % 4]} />
-                      ))}
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-            </div>
+                    {/* Two charts side by side inside the parent */}
+                    <div className="grid grid-cols-1 xl:grid-cols-[1fr_300px] divide-y xl:divide-y-0 xl:divide-x divide-ccb-border">
 
-            <div className="orm-grid-2">
-              <div className="orm-panel">
-                <div className="orm-panel-head">
-                  <div>
-                    <div className="orm-panel-title">Time Window Performance</div>
-                    <div className="orm-panel-sub">Repairs grouped by the sheet time column</div>
-                  </div>
-                  <div className="orm-panel-tag orm-tag-navy">peak: {peakShift?.shift || "n/a"}</div>
-                </div>
-                <ResponsiveContainer width="100%" height={240}>
-                  <BarChart data={shiftPerformance}>
-                    <CartesianGrid vertical={false} stroke={COLORS.border} />
-                    <XAxis dataKey="shift" tick={{ fontSize: 10, fill: COLORS.muted }} axisLine={false} tickLine={false} interval={0} height={48} />
-                    <YAxis tick={{ fontSize: 11, fill: COLORS.muted }} axisLine={false} tickLine={false} />
-                    <Tooltip contentStyle={{ background: COLORS.navy, border: "none", borderRadius: 12, color: "#fff" }} cursor={{ fill: COLORS.navySoft }} />
-                    <Bar dataKey="repaired" fill={COLORS.navy} radius={[10, 10, 0, 0]} maxBarSize={36} />
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-
-              <div className="orm-panel">
-                <div className="orm-panel-head">
-                  <div>
-                    <div className="orm-panel-title">Monthly Summary</div>
-                    <div className="orm-panel-sub">A month-to-month view of repaired counts</div>
-                  </div>
-                  <div className="orm-panel-tag orm-tag-gold">live sheet</div>
-                </div>
-                <ResponsiveContainer width="100%" height={240}>
-                  <AreaChart data={monthlySummary}>
-                    <defs>
-                      <linearGradient id="monthlyFill" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor={COLORS.gold} stopOpacity={0.34} />
-                        <stop offset="100%" stopColor={COLORS.gold} stopOpacity={0} />
-                      </linearGradient>
-                    </defs>
-                    <CartesianGrid vertical={false} stroke={COLORS.border} />
-                    <XAxis dataKey="month" tick={{ fontSize: 11, fill: COLORS.muted }} axisLine={false} tickLine={false} />
-                    <YAxis tick={{ fontSize: 11, fill: COLORS.muted }} axisLine={false} tickLine={false} />
-                    <Tooltip contentStyle={{ background: COLORS.navy, border: "none", borderRadius: 12, color: "#fff" }} />
-                    <Area type="monotone" dataKey="repaired" stroke={COLORS.gold} strokeWidth={3} fill="url(#monthlyFill)" dot={{ r: 4, fill: "#fff", stroke: COLORS.gold, strokeWidth: 2 }} />
-                  </AreaChart>
-                </ResponsiveContainer>
-              </div>
-            </div>
-
-            <div className="orm-grid-2">
-              <div className="orm-panel">
-                <div className="orm-panel-head">
-                  <div>
-                    <div className="orm-panel-title">Recent Activity</div>
-                    <div className="orm-panel-sub">The latest rows from the sheet</div>
-                  </div>
-                  <div className="orm-panel-tag orm-tag-good">live feed</div>
-                </div>
-                <div className="orm-feed">
-                  {focusRecords.slice(0, 5).map((record) => {
-                    const status = getStatus(record);
-                    return (
-                      <div className="orm-feed-item" key={`${record.tabName}-${record.rowNumber}`}>
-                        <div className="orm-feed-time">{record.time || "No time"}</div>
-                        <div className={`orm-feed-dot ${status === "reject" ? "warn" : "good"}`}>
-                          {status === "reject" ? <Icon.Warn /> : <Icon.Check2 />}
+                      {/* Bar chart */}
+                      <div className="p-5">
+                        <div className="mb-3">
+                          <p className="text-[12px] font-bold text-ccb-navy">O-Ring Production</p>
+                          <p className="text-[11px] text-ccb-muted">Total installed per {chartView.toLowerCase()} period</p>
                         </div>
-                        <div className="orm-feed-body">
-                          <div className="orm-feed-main">
-                            <div className="orm-jo">
-                              {record.valveCameFrom || "Unknown source"} • {formatDateLabel(record.dateKey)}
-                            </div>
-                            <div className="orm-meta">
-                              {record.valvesRepaired} valves repaired • Installed to: {record.installedTo || "n/a"}
-                            </div>
+                        {chartBarData.length === 0 ? (
+                          <div className="flex items-center justify-center h-48 text-ccb-muted text-sm">No data available</div>
+                        ) : (
+                          <ResponsiveContainer width="100%" height={220}>
+                            <BarChart data={chartBarData} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
+                              <CartesianGrid vertical={false} stroke="#E5E8F4" />
+                              <XAxis dataKey="label" tick={{ fontSize: 10, fill: "#5A6488" }} axisLine={false} tickLine={false} />
+                              <YAxis tick={{ fontSize: 10, fill: "#5A6488" }} axisLine={false} tickLine={false} />
+                              <Tooltip content={<ChartTooltip />} cursor={{ fill: "rgba(41,58,146,0.06)" }} />
+                              <Bar dataKey="repaired" name="Installed" fill="#293A92" radius={[6,6,0,0]} maxBarSize={44} />
+                            </BarChart>
+                          </ResponsiveContainer>
+                        )}
+                      </div>
+
+                      {/* Donut chart */}
+                      <div className="p-5 flex flex-col">
+                        <div className="mb-3">
+                          <p className="text-[12px] font-bold text-ccb-navy">Good vs Reject</p>
+                          <p className="text-[11px] text-ccb-muted">Quality breakdown · {chartView}</p>
+                        </div>
+                        <div className="relative flex items-center justify-center flex-1">
+                          <ResponsiveContainer width="100%" height={180}>
+                            <PieChart>
+                              <Pie
+                                data={[
+                                  { name: "Good",   value: chartDonutData.good   },
+                                  { name: "Reject", value: chartDonutData.reject },
+                                ]}
+                                dataKey="value"
+                                innerRadius="60%"
+                                outerRadius="85%"
+                                startAngle={90}
+                                endAngle={-270}
+                              >
+                                <Cell fill="#293A92" />
+                                <Cell fill="#C0392B" />
+                              </Pie>
+                              <Tooltip content={<ChartTooltip />} />
+                            </PieChart>
+                          </ResponsiveContainer>
+                          <div className="absolute text-center pointer-events-none">
+                            <div className="text-[22px] font-extrabold text-ccb-navy leading-none">{chartDonutData.rate.toFixed(1)}%</div>
+                            <div className="text-[9px] font-bold uppercase tracking-widest text-ccb-muted mt-1">Efficiency</div>
                           </div>
-                          <div className="orm-feed-stats">
-                            <div className="orm-feed-stat">
-                              <div className="orm-n" style={{ color: COLORS.good }}>{record.good}</div>
-                              <div className="orm-l">Good</div>
+                        </div>
+                        <div className="mt-3 space-y-2">
+                          <div className="flex items-center justify-between rounded-lg bg-ccb-canvas px-3 py-2">
+                            <div className="flex items-center gap-2">
+                              <span className="h-2.5 w-2.5 rounded-full bg-[#293A92]" />
+                              <span className="text-[12px] font-semibold text-ccb-navy">Good</span>
                             </div>
-                            <div className="orm-feed-stat">
-                              <div className="orm-n" style={{ color: COLORS.reject }}>{record.reject}</div>
-                              <div className="orm-l">Reject</div>
+                            <span className="text-[13px] font-bold text-ccb-navy">{chartDonutData.good.toLocaleString()}</span>
+                          </div>
+                          <div className="flex items-center justify-between rounded-lg bg-ccb-canvas px-3 py-2">
+                            <div className="flex items-center gap-2">
+                              <span className="h-2.5 w-2.5 rounded-full bg-[#C0392B]" />
+                              <span className="text-[12px] font-semibold text-ccb-navy">Reject</span>
                             </div>
+                            <span className="text-[13px] font-bold text-ccb-navy">{chartDonutData.reject.toLocaleString()}</span>
                           </div>
                         </div>
                       </div>
-                    );
-                  })}
-                </div>
-              </div>
 
-              <div className="orm-panel">
-                <div className="orm-panel-head">
-                  <div>
-                    <div className="orm-panel-title">Review Filters</div>
-                    <div className="orm-panel-sub">Filter live sheet rows by source, destination, remarks, and status</div>
+                    </div>
                   </div>
-                  <div className="orm-panel-tag orm-tag-navy">search + filter</div>
-                </div>
-                <div className="orm-search-bar">
-                  <div className="orm-field grow">
-                    <Icon.Search />
-                    <input
-                      placeholder="Search source..."
-                      value={filters.source}
-                      onChange={(e) => setFilters((current) => ({ ...current, source: e.target.value }))}
-                    />
-                  </div>
-                  <div className="orm-field">
-                    <Icon.Source />
-                    <input
-                      placeholder="Installed to"
-                      value={filters.installedTo}
-                      onChange={(e) => setFilters((current) => ({ ...current, installedTo: e.target.value }))}
-                    />
-                  </div>
-                  <div className="orm-field">
-                    <Icon.User />
-                    <input
-                      placeholder="Remarks"
-                      value={filters.remarks}
-                      onChange={(e) => setFilters((current) => ({ ...current, remarks: e.target.value }))}
-                    />
-                  </div>
-                  <div className="orm-field">
-                    <Icon.Calendar />
-                    <select value={selectedMonth} onChange={(e) => setSelectedMonth(e.target.value)}>
-                      <option value="All">All</option>
-                      {monthOptions.map((option) => (
-                        <option key={option.key} value={option.key}>
-                          {option.label}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div className="orm-field">
-                    <Icon.Check2 />
-                    <select
-                      value={filters.status}
-                      onChange={(e) => setFilters((current) => ({ ...current, status: e.target.value }))}
-                    >
-                      <option>All Status</option>
-                      <option>Completed</option>
-                      <option>Has Reject</option>
-                      <option>Pending Review</option>
-                    </select>
-                  </div>
-                  <button className="orm-btn-filter" type="button">
-                    <Icon.Filter />
-                    Apply Filters
-                  </button>
-                </div>
-              </div>
-            </div>
 
-            <div className="orm-panel orm-table-panel">
-              <div className="orm-panel-head">
-                <div>
-                  <div className="orm-panel-title">O-Ring Records</div>
-                  <div className="orm-panel-sub">Each row maps to the sheet columns you showed me</div>
-                </div>
-                <div className="orm-panel-tag orm-tag-reject">{visibleRecords.length} rows</div>
-              </div>
-              <div className="orm-table-wrap">
-                <div className="orm-table-scroll">
-                  <table className="orm-table">
-                    <thead>
-                      <tr>
-                        <th>Date</th>
-                        <th>Time</th>
-                        <th>Valve Came From</th>
-                        <th>Valves Repaired</th>
-                        <th>Installed To</th>
-                        <th>Good</th>
-                        <th>Reject</th>
-                        <th>Remarks</th>
-                        <th>Status</th>
-                        <th>Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {pagedRows.map((record) => {
-                        const status = getStatus(record);
-                        return (
-                          <tr key={`${record.tabName}-${record.rowNumber}`}>
-                            <td>{formatDateLabel(record.dateKey)}</td>
-                            <td>{record.time || "—"}</td>
-                            <td><b>{record.valveCameFrom || "—"}</b></td>
-                            <td>{record.valvesRepaired}</td>
-                            <td>{record.installedTo || "—"}</td>
-                            <td className="orm-cell-good">{record.good}</td>
-                            <td className="orm-cell-reject">{record.reject}</td>
-                            <td>{record.remarks || "—"}</td>
-                            <td>
-                              <span className={`orm-pill ${status}`}>
-                                {status === "good" ? "Completed" : status === "reject" ? "Has Reject" : "Needs Review"}
-                              </span>
-                            </td>
-                            <td>
-                              <div className="orm-row-actions">
-                                <button title="View" type="button">
-                                  <Icon.Eye />
-                                </button>
-                                <button title="Edit" type="button">
-                                  <Icon.Edit />
-                                </button>
-                              </div>
-                            </td>
+                  {/* ── Monitoring Table (header = Search Filter) ── */}
+                  <div className="rounded-2xl bg-white border border-ccb-border shadow-sm overflow-hidden">
+
+                    {/* ── Unified panel header: title + single search + status dropdown ── */}
+                    <div className="flex items-center justify-between gap-3 flex-wrap px-5 py-3 border-b border-ccb-border">
+                      <div>
+                        <h3 className="text-[13.5px] font-bold text-ccb-navy">O-Ring Records</h3>
+                        <p className="text-[11px] text-ccb-muted mt-0.5">{visibleRecords.length} records · {currentLabel}</p>
+                      </div>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        {/* ‹ Month › navigator */}
+                        <div className="flex items-center rounded-lg border border-ccb-border bg-white overflow-hidden shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const idx = monthOptions.findIndex(o => o.key === (selectedMonth === "All" ? focusMonthKey : selectedMonth));
+                              if (idx > 0) setSelectedMonth(monthOptions[idx - 1].key);
+                            }}
+                            disabled={monthOptions.findIndex(o => o.key === (selectedMonth === "All" ? focusMonthKey : selectedMonth)) <= 0}
+                            className="px-3 py-2 text-ccb-muted hover:text-ccb-navy hover:bg-ccb-canvas disabled:opacity-30 disabled:cursor-not-allowed transition border-r border-ccb-border"
+                          >
+                            ‹
+                          </button>
+                          <span className="px-4 py-2 text-[12.5px] font-semibold text-ccb-navy min-w-[110px] text-center">
+                            {currentLabel}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const idx = monthOptions.findIndex(o => o.key === (selectedMonth === "All" ? focusMonthKey : selectedMonth));
+                              if (idx < monthOptions.length - 1) setSelectedMonth(monthOptions[idx + 1].key);
+                            }}
+                            disabled={monthOptions.findIndex(o => o.key === (selectedMonth === "All" ? focusMonthKey : selectedMonth)) >= monthOptions.length - 1}
+                            className="px-3 py-2 text-ccb-muted hover:text-ccb-navy hover:bg-ccb-canvas disabled:opacity-30 disabled:cursor-not-allowed transition border-l border-ccb-border"
+                          >
+                            ›
+                          </button>
+                        </div>
+                        {/* Single search */}
+                        <div className="relative">
+                          <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-ccb-muted pointer-events-none" />
+                          <input
+                            value={search}
+                            onChange={e => setSearch(e.target.value)}
+                            placeholder="Search valve source, installed to, remarks..."
+                            className="pl-8 pr-3 py-2 rounded-lg border border-ccb-border bg-ccb-canvas text-[12px] text-ccb-navy placeholder:text-ccb-muted-2 outline-none focus:border-ccb-blue w-72"
+                          />
+                        </div>
+                        {/* Monthly / Quarterly / Yearly dropdown */}
+                        <div className="relative">
+                          <select
+                            value={tableView}
+                            onChange={e => { setTableView(e.target.value as "Monthly" | "Quarterly" | "Yearly"); setPage(1); }}
+                            className="appearance-none rounded-lg border border-ccb-border bg-ccb-canvas pl-3 pr-8 py-2 text-[12px] text-ccb-navy outline-none focus:border-ccb-blue"
+                          >
+                            <option value="Monthly">Monthly</option>
+                            <option value="Quarterly">Quarterly</option>
+                            <option value="Yearly">Yearly</option>
+                          </select>
+                          <ChevronDown size={13} className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-ccb-muted" />
+                        </div>
+                        {/* Clear */}
+                        {(search) && (
+                          <button
+                            onClick={() => { setSearch(""); setFilters({ status: "All Status" }); }}
+                            className="rounded-lg border border-ccb-border bg-white px-3 py-2 text-[12px] font-semibold text-ccb-muted hover:text-ccb-navy hover:bg-ccb-canvas transition"
+                          >
+                            Clear
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Scrollable table — no pagination, scroll instead */}
+                    <div className="overflow-x-auto overflow-y-auto" style={{ maxHeight: "420px" }}>
+                      <table className="w-full text-[12.5px]" style={{ borderCollapse: "collapse" }}>
+                        <thead>
+                          <tr className="bg-ccb-canvas border-b border-ccb-border">
+                            {["Date","Time","Valve Source","Repaired","Installed To","Good","Reject","Remarks"].map(h => (
+                              <th key={h} className="px-4 py-3 text-left text-[10px] font-bold uppercase tracking-wider text-ccb-muted whitespace-nowrap sticky top-0 bg-ccb-canvas z-10">
+                                {h}
+                              </th>
+                            ))}
                           </tr>
-                        );
-                      })}
-                      {pagedRows.length === 0 && (
-                        <tr>
-                          <td colSpan={10} style={{ textAlign: "center", padding: 28, color: COLORS.faint }}>
-                            No rows match your current filters.
-                          </td>
-                        </tr>
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-                <div className="orm-table-foot">
-                  <div className="orm-info">
-                    Showing {visibleRecords.length === 0 ? 0 : (page - 1) * PAGE_SIZE + 1}–
-                    {Math.min(page * PAGE_SIZE, visibleRecords.length)} of {visibleRecords.length} rows
+                        </thead>
+                        <tbody>
+                          {visibleRecords.map((record, idx) => {
+                            const zebra = idx % 2 === 1 ? "bg-[#FAFBFF]" : "bg-white";
+                            return (
+                              <tr key={`${record.tabName}-${record.rowNumber}`}
+                                className={`${zebra} hover:bg-ccb-blue/5 border-b border-ccb-border transition-colors`}>
+                                <td className="px-4 py-3 whitespace-nowrap text-ccb-navy font-medium">{formatDateLabel(record.dateKey)}</td>
+                                <td className="px-4 py-3 whitespace-nowrap text-ccb-muted">{record.time || "—"}</td>
+                                <td className="px-4 py-3 whitespace-nowrap font-bold text-ccb-navy">{record.valveCameFrom || "—"}</td>
+                                <td className="px-4 py-3 whitespace-nowrap text-ccb-navy">{record.valvesRepaired}</td>
+                                <td className="px-4 py-3 whitespace-nowrap text-ccb-muted">{record.installedTo || "—"}</td>
+                                <td className="px-4 py-3 whitespace-nowrap font-bold text-green-700">{record.good}</td>
+                                <td className="px-4 py-3 whitespace-nowrap font-bold text-ccb-red">{record.reject}</td>
+                                <td className="px-4 py-3 text-ccb-muted max-w-[200px] truncate">{record.remarks || "—"}</td>
+                              </tr>
+                            );
+                          })}
+                          {visibleRecords.length === 0 && (
+                            <tr>
+                              <td colSpan={8} className="px-4 py-10 text-center text-ccb-muted text-sm">
+                                No records match your current filters.
+                              </td>
+                            </tr>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+
+                    {/* Footer — record count only, no pagination */}
+                    <div className="flex items-center justify-between px-5 py-3 border-t border-ccb-border bg-white">
+                      <p className="text-[11px] text-ccb-muted">{visibleRecords.length} records</p>
+                    </div>
                   </div>
-                  <div className="orm-pager">
-                    <button disabled={page === 1} onClick={() => setPage((current) => Math.max(1, current - 1))}>
-                      ‹
-                    </button>
-                    {Array.from({ length: totalPages }, (_, index) => index + 1)
-                      .slice(0, 5)
-                      .map((value) => (
-                        <button key={value} className={value === page ? "active" : ""} onClick={() => setPage(value)}>
-                          {value}
-                        </button>
-                      ))}
-                    <button disabled={page === totalPages} onClick={() => setPage((current) => Math.min(totalPages, current + 1))}>
-                      ›
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </>
+
+                </>
               )}
             </div>
           </div>
         </div>
       </div>
+
+      {/* ── Add Record Modal ── */}
+      {addOpen && (
+        <AddRecordModal
+          tabName={sheetTabs[0] || "Sheet1"}
+          tabOptions={sheetTabs}
+          saving={addRecord.isPending}
+          onClose={() => setAddOpen(false)}
+          onSave={(payload) => addRecord.mutate(payload)}
+        />
+      )}
+    </div>
+  );
+}
+
+// ─── Add Report Modal (date groups → shifts) ─────────────────────────────────
+type ShiftRow = {
+  id: string;
+  time: string;
+  valveCameFrom: string;
+  installedTo: string;
+  valvesRepaired: string;
+  good: string;
+  reject: string;
+  remarks: string;
+};
+
+type DateGroup = {
+  id: string;
+  date: string;
+  shifts: ShiftRow[];
+};
+
+let _uid = 0;
+const uid = () => String(++_uid);
+
+function emptyShift(): ShiftRow {
+  return { id: uid(), time: "", valveCameFrom: "", installedTo: "", valvesRepaired: "", good: "", reject: "", remarks: "" };
+}
+function emptyGroup(): DateGroup {
+  return { id: uid(), date: new Date().toISOString().split("T")[0], shifts: [emptyShift()] };
+}
+
+function AddRecordModal({ tabName, tabOptions, saving, onClose, onSave }: {
+  tabName: string;
+  tabOptions: string[];
+  saving: boolean;
+  onClose: () => void;
+  onSave: (payload: Parameters<typeof addOringRecordFn>[0]["data"]) => void;
+}) {
+  const [selectedTab, setSelectedTab] = useState(tabName);
+  const [groups, setGroups] = useState<DateGroup[]>([emptyGroup()]);
+
+  // ── Group helpers ────────────────────────────────────────────────────────
+  function addGroup() { setGroups(g => [...g, emptyGroup()]); }
+  function removeGroup(gid: string) {
+    setGroups(g => g.length > 1 ? g.filter(x => x.id !== gid) : g);
+  }
+  function updateGroupDate(gid: string, date: string) {
+    setGroups(g => g.map(x => x.id === gid ? { ...x, date } : x));
+  }
+
+  // ── Shift helpers ────────────────────────────────────────────────────────
+  function addShift(gid: string) {
+    setGroups(g => g.map(x => {
+      if (x.id !== gid) return x;
+      const prev = x.shifts[x.shifts.length - 1];
+      const newShift: ShiftRow = {
+        ...emptyShift(),
+        // Pre-fill from previous shift — editable
+        valveCameFrom: prev?.valveCameFrom ?? "",
+        installedTo:   prev?.installedTo   ?? "",
+        remarks:       prev?.remarks       ?? "",
+      };
+      return { ...x, shifts: [...x.shifts, newShift] };
+    }));
+  }
+  function removeShift(gid: string, sid: string) {
+    setGroups(g => g.map(x => x.id === gid
+      ? { ...x, shifts: x.shifts.length > 1 ? x.shifts.filter(s => s.id !== sid) : x.shifts }
+      : x));
+  }
+  function updateShift(gid: string, sid: string, field: keyof Omit<ShiftRow,"id">, value: string) {
+    setGroups(g => g.map(x => x.id === gid
+      ? { ...x, shifts: x.shifts.map(s => s.id === sid ? { ...s, [field]: value } : s) }
+      : x));
+  }
+
+  // ── Grand totals preview ─────────────────────────────────────────────────
+  const allShifts = groups.flatMap(g => g.shifts);
+  const grandGood     = allShifts.reduce((t, s) => t + (Number(s.good)           || 0), 0);
+  const grandReject   = allShifts.reduce((t, s) => t + (Number(s.reject)         || 0), 0);
+  const grandRepaired = allShifts.reduce((t, s) => t + (Number(s.valvesRepaired) || (Number(s.good) + Number(s.reject))), 0);
+
+  function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    onSave({
+      tabName: selectedTab,
+      valveCameFrom: "",  // per-shift now, kept for backend compat (ignored)
+      dateGroups: groups.map(g => ({
+        date: g.date,
+        shifts: g.shifts.map(s => ({
+          time:           s.time,
+          valveCameFrom:  s.valveCameFrom.trim(),
+          installedTo:    s.installedTo.trim(),
+          valvesRepaired: Number(s.valvesRepaired) || (Number(s.good) + Number(s.reject)),
+          good:           Number(s.good)   || 0,
+          reject:         Number(s.reject) || 0,
+          remarks:        s.remarks.trim(),
+        })),
+      })),
+    });
+  }
+
+  const totalShifts = allShifts.length;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-ccb-navy/50 backdrop-blur-sm p-4"
+      onClick={onClose}>
+      <div className="w-[96vw] max-w-5xl max-h-[92vh] flex flex-col rounded-2xl bg-white shadow-[0_30px_80px_-20px_rgba(26,37,96,0.5)] overflow-hidden"
+        onClick={e => e.stopPropagation()}>
+
+        {/* Header */}
+        <div className="flex items-center justify-between px-8 py-4 border-b border-ccb-border shrink-0">
+          <div>
+            <h2 className="text-[15px] font-bold text-ccb-navy">Add O-Ring Report</h2>
+            <div className="flex items-center gap-2 mt-0.5">
+              <span className="text-[11px] text-ccb-muted">Save to sheet:</span>
+              <div className="relative">
+                <select
+                  value={selectedTab}
+                  onChange={e => setSelectedTab(e.target.value)}
+                  className="appearance-none rounded-lg border border-ccb-border bg-ccb-canvas pl-2.5 pr-7 py-1 text-[12px] font-semibold text-ccb-navy outline-none focus:border-ccb-blue"
+                >
+                  {tabOptions.length > 0
+                    ? tabOptions.map(t => <option key={t} value={t}>{t}</option>)
+                    : <option value={selectedTab}>{selectedTab}</option>
+                  }
+                </select>
+                <ChevronDown size={12} className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-ccb-muted" />
+              </div>
+            </div>
+          </div>
+          <button type="button" onClick={onClose}
+            className="rounded-lg p-1.5 text-ccb-muted hover:bg-ccb-canvas hover:text-ccb-navy transition">
+            <X size={18} />
+          </button>
+        </div>
+
+        <form onSubmit={handleSubmit} className="flex flex-col flex-1 overflow-hidden">
+          <div className="flex-1 overflow-y-auto px-8 py-5 space-y-4">
+
+            {/* Add Date button at top */}
+            <div className="flex items-center justify-between">
+              <p className="text-[12px] font-bold text-ccb-navy">{groups.length} Date Group{groups.length > 1 ? "s" : ""}</p>
+              <button type="button" onClick={addGroup}
+                className="flex items-center gap-1.5 rounded-lg border border-ccb-blue px-3 py-2 text-[12px] font-semibold text-ccb-blue hover:bg-ccb-blue hover:text-white transition">
+                <Plus size={13} /> Add Date
+              </button>
+            </div>
+
+            {/* Date groups */}
+            {groups.map((group, gi) => {
+              const groupGood     = group.shifts.reduce((t, s) => t + (Number(s.good)   || 0), 0);
+              const groupReject   = group.shifts.reduce((t, s) => t + (Number(s.reject) || 0), 0);
+              const groupRepaired = group.shifts.reduce((t, s) => t + (Number(s.valvesRepaired) || (Number(s.good) + Number(s.reject))), 0);
+
+              return (
+                <div key={group.id} className="rounded-xl border border-ccb-border overflow-hidden">
+                  {/* Date group header */}
+                  <div className="flex items-center gap-3 bg-ccb-canvas px-4 py-3 border-b border-ccb-border">
+                    <span className="text-[11px] font-bold uppercase tracking-wider text-ccb-muted w-8">
+                      #{gi + 1}
+                    </span>
+                    <input type="date" value={group.date} onChange={e => updateGroupDate(group.id, e.target.value)}
+                      className="rounded-lg border border-ccb-border bg-white px-3 py-2 text-[13px] text-ccb-navy outline-none focus:border-ccb-blue" />
+                    <span className="ml-auto text-[12px] text-ccb-muted font-medium">
+                      {group.shifts.length} shift{group.shifts.length !== 1 ? "s" : ""}
+                    </span>
+                    <button type="button" onClick={() => addShift(group.id)}
+                      className="flex items-center gap-1.5 rounded-lg border border-ccb-border bg-white px-3 py-1.5 text-[12px] font-semibold text-ccb-navy hover:border-ccb-blue hover:text-ccb-blue transition">
+                      <Plus size={12} /> Shift
+                    </button>
+                    {groups.length > 1 && (
+                      <button type="button" onClick={() => removeGroup(group.id)}
+                        className="rounded-lg p-1.5 text-ccb-muted hover:text-ccb-red hover:bg-red-50 transition">
+                        <X size={15} />
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Shift rows */}
+                  <div className="p-4 space-y-2">
+                    {/* Column headers */}
+                    <div className="grid gap-x-4" style={{ gridTemplateColumns: "12fr 22fr 22fr 8fr 8fr 8fr 20fr auto" }}>
+                      {["Time","Valve From","Installed To","Rep.","Good","Rej.","Remarks",""].map((h, i) => (
+                        <span key={i} className="text-[10px] font-bold uppercase tracking-wider text-ccb-muted truncate">{h}</span>
+                      ))}
+                    </div>
+
+                    {group.shifts.map(s => (
+                      <div key={s.id} className="grid gap-x-4 gap-y-2 items-center"
+                        style={{ gridTemplateColumns: "12fr 22fr 22fr 8fr 8fr 8fr 20fr auto" }}>
+                        <input value={s.time} onChange={e => updateShift(group.id, s.id, "time", e.target.value)}
+                          placeholder="6am-8am"
+                          className="min-w-0 rounded-lg border border-ccb-border bg-ccb-canvas px-2.5 py-2 text-[12px] text-ccb-navy placeholder:text-ccb-muted-2 outline-none focus:border-ccb-blue" />
+                        <input value={s.valveCameFrom} onChange={e => updateShift(group.id, s.id, "valveCameFrom", e.target.value)}
+                          placeholder="e.g. EQUI"
+                          className="min-w-0 rounded-lg border border-ccb-border bg-ccb-canvas px-2.5 py-2 text-[12px] text-ccb-navy placeholder:text-ccb-muted-2 outline-none focus:border-ccb-blue" />
+                        <input value={s.installedTo} onChange={e => updateShift(group.id, s.id, "installedTo", e.target.value)}
+                          placeholder="Installed To"
+                          className="min-w-0 rounded-lg border border-ccb-border bg-ccb-canvas px-2.5 py-2 text-[12px] text-ccb-navy placeholder:text-ccb-muted-2 outline-none focus:border-ccb-blue" />
+                        <input type="number" min={0} value={s.valvesRepaired}
+                          onChange={e => updateShift(group.id, s.id, "valvesRepaired", e.target.value)}
+                          placeholder="0"
+                          className="min-w-0 rounded-lg border border-ccb-border bg-ccb-canvas px-1.5 py-2 text-[12px] text-ccb-navy outline-none focus:border-ccb-blue text-center" />
+                        <input type="number" min={0} value={s.good}
+                          onChange={e => updateShift(group.id, s.id, "good", e.target.value)}
+                          placeholder="0"
+                          className="min-w-0 rounded-lg border border-ccb-border bg-ccb-canvas px-1.5 py-2 text-[12px] text-green-700 font-semibold outline-none focus:border-ccb-blue text-center" />
+                        <input type="number" min={0} value={s.reject}
+                          onChange={e => updateShift(group.id, s.id, "reject", e.target.value)}
+                          placeholder="0"
+                          className="min-w-0 rounded-lg border border-ccb-border bg-ccb-canvas px-1.5 py-2 text-[12px] text-ccb-red font-semibold outline-none focus:border-ccb-blue text-center" />
+                        <input value={s.remarks} onChange={e => updateShift(group.id, s.id, "remarks", e.target.value)}
+                          placeholder="Remarks"
+                          className="min-w-0 rounded-lg border border-ccb-border bg-ccb-canvas px-2.5 py-2 text-[12px] text-ccb-navy placeholder:text-ccb-muted-2 outline-none focus:border-ccb-blue" />
+                        <button type="button" onClick={() => removeShift(group.id, s.id)}
+                          disabled={group.shifts.length === 1}
+                          className="flex items-center gap-1 rounded-lg border border-ccb-border bg-white px-2 py-2 text-[11px] font-semibold text-ccb-muted hover:border-ccb-red hover:text-ccb-red hover:bg-red-50 disabled:opacity-30 transition shrink-0 whitespace-nowrap">
+                          <X size={11} /> Shift
+                        </button>
+                      </div>
+                    ))}
+
+                    {/* Per-date subtotal */}
+                    <div className="flex items-center gap-5 rounded-lg bg-ccb-canvas border border-ccb-border px-4 py-2.5 mt-2">
+                      <span className="text-[10.5px] font-bold uppercase tracking-wider text-ccb-muted">Date Total</span>
+                      <span className="h-3 w-px bg-ccb-border" />
+                      <span className="text-[12.5px] font-bold text-ccb-navy">Repaired: {groupRepaired}</span>
+                      <span className="text-[12.5px] font-bold text-green-700">Good: {groupGood}</span>
+                      <span className="text-[12.5px] font-bold text-ccb-red">Reject: {groupReject}</span>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+
+            {/* Grand total */}
+            <div className="rounded-xl border border-ccb-border bg-[#F0F3FF] px-5 py-3.5 flex items-center gap-6">
+              <span className="text-[11.5px] font-bold uppercase tracking-wider text-ccb-navy">Grand Total</span>
+              <span className="h-4 w-px bg-ccb-border" />
+              <span className="text-[13px] font-bold text-ccb-navy">Repaired: {grandRepaired}</span>
+              <span className="text-[13px] font-bold text-green-700">Good: {grandGood}</span>
+              <span className="text-[13px] font-bold text-ccb-red">Reject: {grandReject}</span>
+              <span className="ml-auto text-[11px] text-ccb-muted">{groups.length} date{groups.length > 1 ? "s" : ""} · {totalShifts} shift{totalShifts > 1 ? "s" : ""}</span>
+            </div>
+          </div>
+
+          {/* Footer */}
+          <div className="flex items-center justify-end gap-2 px-8 py-4 border-t border-ccb-border bg-white shrink-0">
+            <button type="button" onClick={onClose} disabled={saving}
+              className="rounded-lg border border-ccb-border bg-white px-5 py-2 text-[12.5px] font-semibold text-ccb-navy hover:bg-ccb-canvas disabled:opacity-50 transition">
+              Cancel
+            </button>
+            <button type="submit" disabled={saving}
+              className="rounded-lg bg-ccb-blue px-5 py-2 text-[12.5px] font-semibold text-white hover:bg-ccb-navy disabled:opacity-50 transition">
+              {saving ? "Saving..." : `Save ${groups.length} Date${groups.length > 1 ? "s" : ""} · ${totalShifts} Shift${totalShifts > 1 ? "s" : ""}`}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <label className="block text-[11px] font-semibold uppercase tracking-[0.1em] text-ccb-muted mb-1.5">{label}</label>
+      {children}
     </div>
   );
 }

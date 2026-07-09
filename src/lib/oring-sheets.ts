@@ -126,7 +126,7 @@ function mapRowToRecord(row: any[], rowNumber: number, tabName: string, carryDat
   const rawInstalledTo = getCell(row, 4);
   const rawGood = getCell(row, 5);
   const rawReject = getCell(row, 6);
-  const rawRemarks = getCell(row, 7);
+  const rawRemarks = getCell(row, 10); // col K (0-indexed)
 
   const nextDate = rawDate || carryDate;
   const dateKey = parseDateKey(nextDate);
@@ -185,7 +185,7 @@ export async function getOringData(tabName: string): Promise<OringRecord[]> {
     const sheets = getSheetsClient();
     const res = await sheets.spreadsheets.values.get({
       spreadsheetId,
-      range: `${tabName}!A1:H1000`,
+      range: `${tabName}!A1:K1000`,
     });
 
     const rows = res.data.values || [];
@@ -218,5 +218,83 @@ export async function getOringDataAll(): Promise<OringRecord[]> {
     }
 
     return records;
+  });
+}
+
+// ─── Add Report (multiple date groups, each with multiple shifts) ────────────
+// Sheet column layout (from screenshot):
+//   A=DATE  B=TIME  C=VALVE CAME FROM  D=VALVES REPAIRED  E=INSTALLED TO
+//   F=GOOD  G=REJECT  H=(blank)  I=TOTAL(good)  J=TOTAL(reject)  K=REMARKS
+// Data rows  → A–G + K  (H,I,J blank)
+// Total rows → E=[Source] Total:  I=sumGood  J=sumReject  (all others blank)
+export async function appendOringReport(
+  tabName: string,
+  report: {
+    valveCameFrom: string; // kept for compat, ignored — per-shift now
+    dateGroups: {
+      date: string;
+      shifts: {
+        time: string;
+        valveCameFrom: string;
+        installedTo: string;
+        valvesRepaired: number;
+        good: number;
+        reject: number;
+        remarks: string;
+      }[];
+    }[];
+  }
+): Promise<void> {
+  return withSheetsAuthError(async () => {
+    const sheets = getSheetsClient();
+
+    for (const group of report.dateGroups) {
+      // Collect totals
+      const sources     = [...new Set(group.shifts.map(s => s.valveCameFrom.trim()).filter(Boolean))];
+      const sourceLabel = sources.length > 0 ? sources.join(" / ") : "Total";
+      const totalGood   = group.shifts.reduce((t, s) => t + s.good, 0);
+      const totalReject = group.shifts.reduce((t, s) => t + s.reject, 0);
+
+      // 1. Build shift rows (H/I/J blank — total will be patched in after)
+      const shiftRows = group.shifts.map((s) => [
+        group.date,        // A - DATE on every row
+        s.time,
+        s.valveCameFrom,
+        s.valvesRepaired,
+        s.installedTo,
+        s.good,
+        s.reject,
+        "",   // H - will be filled for last row below
+        "",   // I
+        "",   // J
+        s.remarks,
+      ]);
+
+      // 2. Append all shift rows and capture the updated range to find the last row
+      const appendRes = await sheets.spreadsheets.values.append({
+        spreadsheetId,
+        range: `${tabName}!A:K`,
+        valueInputOption: "USER_ENTERED",
+        insertDataOption: "INSERT_ROWS",
+        requestBody: { values: shiftRows },
+      });
+
+      // 3. Parse the last written row number from the updatedRange (e.g. "Sheet1!A25:K27" → 27)
+      const updatedRange: string = appendRes.data.updates?.updatedRange || "";
+      const rowMatch = updatedRange.match(/:[A-Z]+(\d+)$/);
+      const lastRow = rowMatch ? parseInt(rowMatch[1]) : null;
+
+      // 4. Patch H/I/J on that last row with the total values
+      if (lastRow) {
+        await sheets.spreadsheets.values.update({
+          spreadsheetId,
+          range: `${tabName}!H${lastRow}:J${lastRow}`,
+          valueInputOption: "USER_ENTERED",
+          requestBody: {
+            values: [[`${sourceLabel} Total:`, totalGood, totalReject]],
+          },
+        });
+      }
+    }
   });
 }

@@ -160,6 +160,8 @@ function PelletsDashboard() {
   const { data: records = [], isLoading, error } = useQuery({
     queryKey: ["pellets-data", "All"],
     queryFn: () => getPelletsDataFn({ data: "All" }),
+    staleTime: 1000 * 60 * 2,
+    refetchOnWindowFocus: false,
   });
 
   const [month, setMonth] = useState("All");

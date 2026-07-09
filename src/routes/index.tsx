@@ -1034,6 +1034,8 @@ function MaterialMonitoring() {
     queryKey: ["materials", activeTab],
     queryFn: () => getMaterialsFn({ data: activeTab }),
     enabled: activeTab !== "ALL",
+    staleTime: 1000 * 60 * 2,
+    refetchOnWindowFocus: false,
   });
 
   // Fetch all tabs data when ALL is selected
@@ -1042,6 +1044,8 @@ function MaterialMonitoring() {
       queryKey: ["materials", tab],
       queryFn: () => getMaterialsFn({ data: tab }),
       enabled: activeTab === "ALL",
+      staleTime: 1000 * 60 * 2,
+      refetchOnWindowFocus: false,
     })),
   });
 
@@ -1227,7 +1231,7 @@ function MaterialMonitoring() {
                 ) : (
                   filtered.map((m: any) => (
                     <MaterialCard
-                      key={m.code}
+                      key={`${m.tabName}-${m.rowNumber}`}
                       m={m}
                       selected={selectedCode === m.code}
                       onSelect={() => setSelectedCode(m.code)}

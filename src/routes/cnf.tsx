@@ -73,6 +73,8 @@ function CNFMonitoring() {
     queryKey: ["cnf-items", currentTab],
     queryFn: () => getCnfItemsFn({ data: currentTab }),
     enabled: !!currentTab,
+    staleTime: 1000 * 60 * 2,
+    refetchOnWindowFocus: false,
   });
 
   const brands = useMemo(() => groupByBrand(items), [items]);
