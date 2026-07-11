@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
-  Bar, BarChart, Cell, CartesianGrid,
+  Line, LineChart, Cell, CartesianGrid,
   Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from "recharts";
 import { Search, Plus, ChevronDown, X } from "lucide-react";
@@ -70,8 +70,8 @@ function useCountUp(value: number, duration = 700) {
 }
 
 // ─── KPI Card ────────────────────────────────────────────────────────────────
-function KpiCard({ label, value, unit, variant }: {
-  label: string; value: string; unit?: string;
+function KpiCard({ label, value, unit, variant, sub }: {
+  label: string; value: string; unit?: string; sub?: string;
   variant: "blue" | "blue2" | "blue3" | "navy";
 }) {
   const bg = { blue:"bg-[#2E3EA8]", blue2:"bg-[#273690]", blue3:"bg-[#202D78]", navy:"bg-[#1A2560]" }[variant];
@@ -82,6 +82,7 @@ function KpiCard({ label, value, unit, variant }: {
         <div className="text-[30px] font-extrabold leading-none">{value}</div>
         {unit && <div className="text-[12px] font-semibold uppercase tracking-widest text-white/80">{unit}</div>}
       </div>
+      {sub && <div className="mt-2 text-[11px] text-white/60 truncate">{sub}</div>}
       <div className="pointer-events-none absolute -right-6 -bottom-6 h-24 w-24 rounded-full bg-white/5" />
     </div>
   );
@@ -184,7 +185,24 @@ export default function OringMonitoring() {
   const totalRepaired = useMemo(() => sum(focusRecords, "valvesRepaired"), [focusRecords]);
   const totalGood     = useMemo(() => sum(focusRecords, "good"),           [focusRecords]);
   const totalReject   = useMemo(() => sum(focusRecords, "reject"),         [focusRecords]);
-  const passRate = totalRepaired ? (totalGood / totalRepaired) * 100 : 0;
+  const passRate   = totalRepaired ? (totalGood   / totalRepaired) * 100 : 0;
+  const rejectRate = totalRepaired ? (totalReject / totalRepaired) * 100 : 0;
+
+  // Month-over-Month productivity — compare focusMonth vs previous month
+  const prevMonthKey = useMemo(() => {
+    const idx = monthOptions.findIndex(o => o.key === focusMonthKey);
+    return idx > 0 ? monthOptions[idx - 1].key : null;
+  }, [monthOptions, focusMonthKey]);
+
+  const prevMonthRepaired = useMemo(() => {
+    if (!prevMonthKey) return 0;
+    return sum(allRecords.filter(r => r.monthKey === prevMonthKey), "valvesRepaired");
+  }, [allRecords, prevMonthKey]);
+
+  const momChange = useMemo(() => {
+    if (!prevMonthRepaired) return null;
+    return ((totalRepaired - prevMonthRepaired) / prevMonthRepaired) * 100;
+  }, [totalRepaired, prevMonthRepaired]);
 
   const totalDisplay  = useCountUp(totalRepaired);
   const goodDisplay   = useCountUp(totalGood);
@@ -353,9 +371,15 @@ export default function OringMonitoring() {
                   {/* ── KPI Cards ── */}
                   <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
                     <KpiCard variant="blue"  label="Total O-Rings Installed" value={totalDisplay.toLocaleString()} />
-                    <KpiCard variant="blue2" label="Good O-Rings"            value={goodDisplay.toLocaleString()} />
-                    <KpiCard variant="blue3" label="Reject O-Rings"          value={rejectDisplay.toLocaleString()} />
-                    <EfficiencyCard rate={passRate} />
+                    <KpiCard variant="blue2" label="Good O-Rings"  value={goodDisplay.toLocaleString()} />
+                    <KpiCard variant="blue3" label="Reject O-Rings" value={rejectDisplay.toLocaleString()} />
+                    <KpiCard
+                      variant="navy"
+                      label="Productivity"
+                      value={momChange === null ? "—" : `${momChange >= 0 ? "↑" : "↓"} ${Math.abs(momChange).toFixed(1)}`}
+                      unit={momChange === null ? "" : "%"}
+                      sub={momChange === null ? "No previous data" : `${totalRepaired.toLocaleString()} vs ${prevMonthRepaired.toLocaleString()} prev`}
+                    />
                   </div>
 
                   {/* ── Dashboard Charts — unified parent panel ── */}
@@ -393,13 +417,21 @@ export default function OringMonitoring() {
                           <div className="flex items-center justify-center h-48 text-ccb-muted text-sm">No data available</div>
                         ) : (
                           <ResponsiveContainer width="100%" height={220}>
-                            <BarChart data={chartBarData} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
-                              <CartesianGrid vertical={false} stroke="#E5E8F4" />
+                            <LineChart data={chartBarData} margin={{ top: 8, right: 8, left: -20, bottom: 0 }}>
+                              <CartesianGrid strokeDasharray="3 3" stroke="#E5E8F4" />
                               <XAxis dataKey="label" tick={{ fontSize: 10, fill: "#5A6488" }} axisLine={false} tickLine={false} />
                               <YAxis tick={{ fontSize: 10, fill: "#5A6488" }} axisLine={false} tickLine={false} />
-                              <Tooltip content={<ChartTooltip />} cursor={{ fill: "rgba(41,58,146,0.06)" }} />
-                              <Bar dataKey="repaired" name="Installed" fill="#293A92" radius={[6,6,0,0]} maxBarSize={44} />
-                            </BarChart>
+                              <Tooltip content={<ChartTooltip />} />
+                              <Line
+                                type="monotone"
+                                dataKey="repaired"
+                                name="Installed"
+                                stroke="#293A92"
+                                strokeWidth={2.5}
+                                dot={{ fill: "#293A92", r: 4, strokeWidth: 0 }}
+                                activeDot={{ r: 6, fill: "#293A92", stroke: "#fff", strokeWidth: 2 }}
+                              />
+                            </LineChart>
                           </ResponsiveContainer>
                         )}
                       </div>
