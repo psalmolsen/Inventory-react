@@ -4,7 +4,7 @@ import {
   Bar, BarChart, Cell, CartesianGrid,
   Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from "recharts";
-import { Search, Plus, Download, ChevronDown, X } from "lucide-react";
+import { Search, Plus, ChevronDown, X } from "lucide-react";
 import { Sidebar } from "./Sidebar";
 import { getOringDataFn, getOringTabsFn, addOringRecordFn } from "../lib/oring-server-functions";
 import type { OringRecord } from "../lib/oring-sheets";
@@ -89,22 +89,13 @@ function KpiCard({ label, value, unit, variant }: {
 
 // ─── Efficiency Card ─────────────────────────────────────────────────────────
 function EfficiencyCard({ rate }: { rate: number }) {
-  const tone = rate >= 90 ? "good" : rate >= 75 ? "warn" : "reject";
-  const colors = {
-    good:  { bg: "bg-[#1A2560]", badge: "bg-green-500/20 text-green-300",  label: "Excellent"       },
-    warn:  { bg: "bg-[#1A2560]", badge: "bg-yellow-500/20 text-yellow-300", label: "Warning"         },
-    reject:{ bg: "bg-[#1A2560]", badge: "bg-red-500/20 text-red-300",       label: "Needs Attention" },
-  }[tone];
   return (
-    <div className={`relative overflow-hidden rounded-2xl p-5 shadow-sm ${colors.bg} text-white ring-2 ring-white/10`}>
+    <div className="relative overflow-hidden rounded-2xl p-5 shadow-sm bg-[#1A2560] text-white ring-2 ring-white/10">
       <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-white/70">Efficiency Rate</div>
       <div className="mt-3 flex items-baseline gap-2">
         <div className="text-[34px] font-extrabold leading-none">{rate.toFixed(1)}</div>
         <div className="text-[14px] font-semibold text-white/80">%</div>
       </div>
-      <span className={`mt-2 inline-block rounded-full px-2.5 py-0.5 text-[10px] font-bold ${colors.badge}`}>
-        {colors.label}
-      </span>
       <div className="pointer-events-none absolute -right-6 -bottom-6 h-28 w-28 rounded-full bg-white/5" />
     </div>
   );
@@ -143,6 +134,7 @@ export default function OringMonitoring() {
 
   const [selectedMonth, setSelectedMonth] = useState("All");
   const [chartView, setChartView] = useState<"Monthly" | "Quarterly" | "Yearly">("Monthly");
+  const [tableMonth, setTableMonth] = useState("All");  // independent from chart
   const [page, setPage] = useState(1);
   const [filters, setFilters] = useState({ status: "All Status" });
   const [tableView, setTableView] = useState<"Monthly" | "Quarterly" | "Yearly">("Monthly");
@@ -173,12 +165,17 @@ export default function OringMonitoring() {
 
   useEffect(() => {
     if (!monthInitialized.current && monthOptions.length > 0) {
-      setSelectedMonth(monthOptions[monthOptions.length - 1].key);
+      const latest = monthOptions[monthOptions.length - 1].key;
+      setSelectedMonth(latest);
+      setTableMonth(latest);
       monthInitialized.current = true;
     }
   }, [monthOptions]);
 
   const focusMonthKey = selectedMonth === "All" ? (monthOptions[monthOptions.length - 1]?.key || "") : selectedMonth;
+
+  // Table has its own independent month key
+  const tableMonthKey = tableMonth === "All" ? (monthOptions[monthOptions.length - 1]?.key || "") : tableMonth;
 
   const focusRecords = useMemo(() =>
     focusMonthKey ? allRecords.filter(r => r.monthKey === focusMonthKey) : allRecords,
@@ -283,7 +280,7 @@ export default function OringMonitoring() {
   const tableRecords = useMemo(() => {
     let pool = allRecords;
     if (tableView === "Monthly") {
-      pool = focusMonthKey ? allRecords.filter(r => r.monthKey === focusMonthKey) : allRecords;
+      pool = tableMonthKey ? allRecords.filter(r => r.monthKey === tableMonthKey) : allRecords;
     } else if (tableView === "Quarterly") {
       const now = new Date();
       const curQ = Math.ceil((now.getMonth() + 1) / 3);
@@ -295,22 +292,21 @@ export default function OringMonitoring() {
       });
       pool = filtered.length > 0 ? filtered : allRecords;
     }
-    // Yearly = all records (pool stays allRecords)
     return pool;
-  }, [allRecords, tableView, focusMonthKey]);
+  }, [allRecords, tableView, tableMonthKey]);
 
   const visibleRecords = useMemo(() => tableRecords.filter(r => {
     if (search && !(r.valveCameFrom + r.installedTo + r.remarks + r.date).toLowerCase().includes(search.toLowerCase())) return false;
     return true;
   }), [tableRecords, search]);
 
-  useEffect(() => { setPage(1); }, [selectedMonth, tableView, search]);
+  useEffect(() => { setPage(1); }, [tableMonth, tableView, search]);
 
   const totalPages = Math.max(1, Math.ceil(visibleRecords.length / PAGE_SIZE));
   const pagedRows  = visibleRecords.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
   const displayError = error instanceof Error ? error : null;
-  const currentLabel = selectedMonth === "All" ? "All Data" : formatMonthLabel(focusMonthKey);
+  const currentLabel = tableMonth === "All" ? "All Data" : formatMonthLabel(tableMonthKey);
 
   const donutData = [
     { name: "Good",   value: totalGood   },
@@ -323,44 +319,18 @@ export default function OringMonitoring() {
         <Sidebar />
         <div className="flex-1 flex flex-col h-full overflow-hidden">
 
-          {/* ── Header ── */}
+          {/* ── Header — matches all other sections ── */}
           <div className="bg-white border-b border-ccb-border shrink-0">
-            <div className="flex items-center justify-between px-8 py-4 gap-4 flex-wrap">
-              <div>
-                <h1 className="text-[18px] font-bold leading-tight text-ccb-navy">O-Ring Report</h1>
-                <p className="text-[12px] text-ccb-muted">Monitor, Track, and Manage O-Ring Installation Activities</p>
+            <div className="flex items-center justify-between px-8 py-4">
+              <div className="flex items-center gap-3">
+                <div>
+                  <h1 className="text-[18px] font-bold leading-tight text-ccb-navy">O-Ring Report</h1>
+                  <p className="text-[12px] text-ccb-muted">Track and manage O-Ring installation activities</p>
+                </div>
               </div>
-              <div className="flex items-center gap-3 flex-wrap">
-                {/* Month selector */}
-                <div className="relative">
-                  <select
-                    value={selectedMonth}
-                    onChange={e => { setSelectedMonth(e.target.value); setPage(1); }}
-                    className="appearance-none rounded-lg border border-ccb-border bg-white pl-3 pr-8 py-2 text-[12.5px] font-semibold text-ccb-navy outline-none focus:border-ccb-blue"
-                  >
-                    <option value="All">All Months</option>
-                    {monthOptions.map(o => <option key={o.key} value={o.key}>{o.label}</option>)}
-                  </select>
-                  <ChevronDown size={14} className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-ccb-muted" />
-                </div>
-                {/* Search */}
-                <div className="relative">
-                  <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-ccb-muted pointer-events-none" />
-                  <input
-                    value={search}
-                    onChange={e => setSearch(e.target.value)}
-                    placeholder="Search records..."
-                    className="pl-9 pr-3 py-2 rounded-lg border border-ccb-border text-[12.5px] text-ccb-navy placeholder:text-ccb-muted-2 outline-none focus:border-ccb-blue w-48"
-                  />
-                </div>
-                <button className="flex items-center gap-1.5 rounded-lg border border-ccb-border bg-white px-3 py-2 text-[12.5px] font-semibold text-ccb-navy hover:bg-ccb-canvas transition">
-                  <Download size={14} /> Export
-                </button>
-                <button
-                  onClick={() => setAddOpen(true)}
-                  className="flex items-center gap-1.5 rounded-lg bg-ccb-blue px-3 py-2 text-[12.5px] font-semibold text-white hover:bg-ccb-navy transition">
-                  <Plus size={14} /> Add Record
-                </button>
+              <div className="flex items-center gap-4">
+                <div className="text-[11px] uppercase tracking-widest text-ccb-muted">CCB Inventory Clerk</div>
+                <div className="h-9 w-9 rounded-full bg-gradient-to-br from-ccb-blue to-ccb-navy text-white flex items-center justify-center text-[12px] font-bold">AB</div>
               </div>
             </div>
             <div className="h-[3px] bg-ccb-red" />
@@ -490,51 +460,99 @@ export default function OringMonitoring() {
                   <div className="rounded-2xl bg-white border border-ccb-border shadow-sm overflow-hidden">
 
                     {/* ── Unified panel header: title + single search + status dropdown ── */}
-                    <div className="flex items-center justify-between gap-3 flex-wrap px-5 py-3 border-b border-ccb-border">
+                    <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-4 px-5 py-3 border-b border-ccb-border">
+                      {/* Left — title + count */}
                       <div>
                         <h3 className="text-[13.5px] font-bold text-ccb-navy">O-Ring Records</h3>
-                        <p className="text-[11px] text-ccb-muted mt-0.5">{visibleRecords.length} records · {currentLabel}</p>
+                        <p className="text-[11px] text-ccb-muted mt-0.5">{visibleRecords.length} records</p>
                       </div>
-                      <div className="flex items-center gap-2 flex-wrap">
-                        {/* ‹ Month › navigator */}
-                        <div className="flex items-center rounded-lg border border-ccb-border bg-white overflow-hidden shrink-0">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              const idx = monthOptions.findIndex(o => o.key === (selectedMonth === "All" ? focusMonthKey : selectedMonth));
-                              if (idx > 0) setSelectedMonth(monthOptions[idx - 1].key);
-                            }}
-                            disabled={monthOptions.findIndex(o => o.key === (selectedMonth === "All" ? focusMonthKey : selectedMonth)) <= 0}
-                            className="px-3 py-2 text-ccb-muted hover:text-ccb-navy hover:bg-ccb-canvas disabled:opacity-30 disabled:cursor-not-allowed transition border-r border-ccb-border"
-                          >
-                            ‹
-                          </button>
-                          <span className="px-4 py-2 text-[12.5px] font-semibold text-ccb-navy min-w-[110px] text-center">
-                            {currentLabel}
-                          </span>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              const idx = monthOptions.findIndex(o => o.key === (selectedMonth === "All" ? focusMonthKey : selectedMonth));
-                              if (idx < monthOptions.length - 1) setSelectedMonth(monthOptions[idx + 1].key);
-                            }}
-                            disabled={monthOptions.findIndex(o => o.key === (selectedMonth === "All" ? focusMonthKey : selectedMonth)) >= monthOptions.length - 1}
-                            className="px-3 py-2 text-ccb-muted hover:text-ccb-navy hover:bg-ccb-canvas disabled:opacity-30 disabled:cursor-not-allowed transition border-l border-ccb-border"
-                          >
-                            ›
-                          </button>
-                        </div>
-                        {/* Single search */}
+
+                      {/* Center — ‹ Period › navigator — steps depend on tableView dropdown */}
+                      <div className="flex items-center rounded-lg border border-ccb-border bg-white overflow-hidden">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (tableView === "Monthly") {
+                              const idx = monthOptions.findIndex(o => o.key === tableMonthKey);
+                              if (idx > 0) setTableMonth(monthOptions[idx - 1].key);
+                            } else if (tableView === "Quarterly") {
+                              const [y, m] = tableMonthKey.split("-");
+                              const q = Math.ceil(Number(m) / 3);
+                              const prevQ = q === 1 ? 4 : q - 1;
+                              const prevY = q === 1 ? Number(y) - 1 : Number(y);
+                              const prevStartMonth = String((prevQ - 1) * 3 + 1).padStart(2, "0");
+                              const prevKey = `${prevY}-${prevStartMonth}`;
+                              const match = monthOptions.find(o => o.key >= prevKey && o.key <= `${prevY}-${String(prevQ * 3).padStart(2, "0")}`);
+                              if (match) setTableMonth(match.key);
+                            } else {
+                              const year = Number(tableMonthKey.slice(0, 4));
+                              const match = monthOptions.slice().reverse().find(o => Number(o.key.slice(0, 4)) < year);
+                              if (match) setTableMonth(match.key);
+                            }
+                          }}
+                          disabled={(() => {
+                            if (tableView === "Monthly") return monthOptions.findIndex(o => o.key === tableMonthKey) <= 0;
+                            if (tableView === "Quarterly") {
+                              const [y, m] = tableMonthKey.split("-");
+                              const q = Math.ceil(Number(m) / 3);
+                              return q === 1 && !monthOptions.some(o => Number(o.key.slice(0, 4)) < Number(y));
+                            }
+                            return !monthOptions.some(o => Number(o.key.slice(0, 4)) < Number(tableMonthKey.slice(0, 4)));
+                          })()}
+                          className="px-3 py-2 text-[15px] leading-none text-ccb-muted hover:text-ccb-navy hover:bg-ccb-canvas disabled:opacity-30 disabled:cursor-not-allowed transition border-r border-ccb-border"
+                        >‹</button>
+                        <span className="px-5 py-2 text-[13px] font-bold text-ccb-navy min-w-[150px] text-center">
+                          {tableView === "Monthly"
+                            ? currentLabel
+                            : tableView === "Quarterly"
+                              ? `${tableMonthKey.slice(0, 4)} Q${Math.ceil(Number(tableMonthKey.slice(5, 7)) / 3)}`
+                              : tableMonthKey.slice(0, 4)}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (tableView === "Monthly") {
+                              const idx = monthOptions.findIndex(o => o.key === tableMonthKey);
+                              if (idx < monthOptions.length - 1) setTableMonth(monthOptions[idx + 1].key);
+                            } else if (tableView === "Quarterly") {
+                              const [y, m] = tableMonthKey.split("-");
+                              const q = Math.ceil(Number(m) / 3);
+                              const nextQ = q === 4 ? 1 : q + 1;
+                              const nextY = q === 4 ? Number(y) + 1 : Number(y);
+                              const nextStartMonth = String((nextQ - 1) * 3 + 1).padStart(2, "0");
+                              const nextKey = `${nextY}-${nextStartMonth}`;
+                              const match = monthOptions.find(o => o.key >= nextKey);
+                              if (match) setTableMonth(match.key);
+                            } else {
+                              const year = Number(tableMonthKey.slice(0, 4));
+                              const match = monthOptions.find(o => Number(o.key.slice(0, 4)) > year);
+                              if (match) setTableMonth(match.key);
+                            }
+                          }}
+                          disabled={(() => {
+                            if (tableView === "Monthly") return monthOptions.findIndex(o => o.key === tableMonthKey) >= monthOptions.length - 1;
+                            if (tableView === "Quarterly") {
+                              const [y, m] = tableMonthKey.split("-");
+                              const q = Math.ceil(Number(m) / 3);
+                              return q === 4 && !monthOptions.some(o => Number(o.key.slice(0, 4)) > Number(y));
+                            }
+                            return !monthOptions.some(o => Number(o.key.slice(0, 4)) > Number(tableMonthKey.slice(0, 4)));
+                          })()}
+                          className="px-3 py-2 text-[15px] leading-none text-ccb-muted hover:text-ccb-navy hover:bg-ccb-canvas disabled:opacity-30 disabled:cursor-not-allowed transition border-l border-ccb-border"
+                        >›</button>
+                      </div>
+
+                      {/* Right — search + dropdown + add + clear */}
+                      <div className="flex items-center gap-2 justify-end">
                         <div className="relative">
                           <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-ccb-muted pointer-events-none" />
                           <input
                             value={search}
                             onChange={e => setSearch(e.target.value)}
-                            placeholder="Search valve source, installed to, remarks..."
-                            className="pl-8 pr-3 py-2 rounded-lg border border-ccb-border bg-ccb-canvas text-[12px] text-ccb-navy placeholder:text-ccb-muted-2 outline-none focus:border-ccb-blue w-72"
+                            placeholder="Search..."
+                            className="pl-8 pr-3 py-2 rounded-lg border border-ccb-border bg-ccb-canvas text-[12px] text-ccb-navy placeholder:text-ccb-muted-2 outline-none focus:border-ccb-blue w-44"
                           />
                         </div>
-                        {/* Monthly / Quarterly / Yearly dropdown */}
                         <div className="relative">
                           <select
                             value={tableView}
@@ -547,20 +565,22 @@ export default function OringMonitoring() {
                           </select>
                           <ChevronDown size={13} className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-ccb-muted" />
                         </div>
-                        {/* Clear */}
-                        {(search) && (
+                        <button
+                          onClick={() => setAddOpen(true)}
+                          className="flex items-center gap-1.5 rounded-lg bg-ccb-blue px-3 py-2 text-[12px] font-semibold text-white hover:bg-ccb-navy transition shrink-0">
+                          <Plus size={13} /> Add Record
+                        </button>
+                        {search && (
                           <button
                             onClick={() => { setSearch(""); setFilters({ status: "All Status" }); }}
                             className="rounded-lg border border-ccb-border bg-white px-3 py-2 text-[12px] font-semibold text-ccb-muted hover:text-ccb-navy hover:bg-ccb-canvas transition"
-                          >
-                            Clear
-                          </button>
+                          >Clear</button>
                         )}
                       </div>
                     </div>
 
                     {/* Scrollable table — no pagination, scroll instead */}
-                    <div className="overflow-x-auto overflow-y-auto" style={{ maxHeight: "420px" }}>
+                    <div className="overflow-x-auto overflow-y-auto" style={{ minHeight: "320px", maxHeight: "420px" }}>
                       <table className="w-full text-[12.5px]" style={{ borderCollapse: "collapse" }}>
                         <thead>
                           <tr className="bg-ccb-canvas border-b border-ccb-border">
