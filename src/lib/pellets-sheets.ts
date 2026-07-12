@@ -22,14 +22,15 @@ export type PelletRecord = {
   date: string;
   dateKey: string;
   monthKey: string;
+  sack: string;
   time: string;
   shift: string;
   interval: string;
   brand: string;
-  sack: string;
   good: number;
   reject: number;
   shots: number;
+  kgs: string;
   remarks: string;
   status: "ok" | "warn" | "danger";
 };
@@ -69,6 +70,14 @@ function parseDateKey(value: string): string {
   const text = value.trim();
   if (!text) return "";
 
+  // Google Sheets serial number (e.g. 45796)
+  const serial = Number(text);
+  if (!isNaN(serial) && serial > 40000 && serial < 60000) {
+    const d = new Date((serial - 25569) * 86400 * 1000);
+    return `${d.getUTCFullYear()}-${pad2(d.getUTCMonth() + 1)}-${pad2(d.getUTCDate())}`;
+  }
+
+  // MM/DD/YY or MM/DD/YYYY or MM-DD-YYYY
   const match = text.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{2}|\d{4})$/);
   if (match) {
     const month = Number(match[1]);
@@ -78,6 +87,7 @@ function parseDateKey(value: string): string {
     return `${year}-${pad2(month)}-${pad2(day)}`;
   }
 
+  // Any other parseable date string
   const parsed = new Date(text);
   if (!Number.isNaN(parsed.getTime())) {
     return `${parsed.getFullYear()}-${pad2(parsed.getMonth() + 1)}-${pad2(parsed.getDate())}`;
@@ -99,140 +109,6 @@ function statusFor(record: { reject: number; shots: number }): PelletRecord["sta
   return "warn";
 }
 
-function normalizeHeader(value: string) {
-  return value.trim().toLowerCase().replace(/[\s_\-/#]+/g, "");
-}
-
-function findHeaderRow(rows: any[][]) {
-  const targets = [
-    "date",
-    "time",
-    "brand",
-    "source",
-    "product",
-    "good",
-    "reject",
-    "shots",
-    "total",
-    "shift",
-    "interval",
-    "sack",
-    "remarks",
-    "status",
-  ];
-
-  let bestIndex = -1;
-  let bestScore = 0;
-
-  for (let i = 0; i < Math.min(rows.length, 10); i++) {
-    const row = rows[i] || [];
-    const score = row.reduce((sum, value) => {
-      const normalized = normalizeHeader(String(value ?? ""));
-      return sum + (targets.some((target) => normalized.includes(target)) ? 1 : 0);
-    }, 0);
-
-    if (score > bestScore) {
-      bestScore = score;
-      bestIndex = i;
-    }
-  }
-
-  return bestScore >= 2 ? bestIndex : -1;
-}
-
-function buildFieldMap(headerRow: any[]) {
-  const map = new Map<string, number>();
-  headerRow.forEach((value, index) => {
-    const header = normalizeHeader(String(value ?? ""));
-    if (!header) return;
-
-    const pairs: Array<[string, boolean]> = [
-      ["date", header.includes("date")],
-      ["time", header.includes("time")],
-      ["brand", header.includes("brand") || header.includes("source") || header.includes("product")],
-      ["good", header.includes("good")],
-      ["reject", header.includes("reject")],
-      ["shots", header.includes("shots") || header.includes("total")],
-      ["shift", header.includes("shift")],
-      ["interval", header.includes("interval") || header.includes("timeinterval")],
-      ["sack", header.includes("sack") || header.includes("size")],
-      ["remarks", header.includes("remark") || header.includes("note")],
-      ["status", header.includes("status")],
-    ];
-
-    for (const [key, matched] of pairs) {
-      if (matched && !map.has(key)) {
-        map.set(key, index);
-      }
-    }
-  });
-  return map;
-}
-
-function inferRecord(row: any[], rowNumber: number, tabName: string, carryDate: string, fieldMap?: Map<string, number>) {
-  const fallback = {
-    date: 0,
-    time: 1,
-    brand: 2,
-    good: 3,
-    reject: 4,
-    sack: 5,
-    shift: 6,
-    interval: 7,
-    remarks: 8,
-    shots: 9,
-  };
-
-  const index = (key: keyof typeof fallback) => fieldMap?.get(key) ?? fallback[key];
-  const rawDate = cell(row, index("date"));
-  const rawTime = cell(row, index("time"));
-  const rawBrand = cell(row, index("brand"));
-  const rawGood = cell(row, index("good"));
-  const rawReject = cell(row, index("reject"));
-  const rawSack = cell(row, index("sack"));
-  const rawShift = cell(row, index("shift"));
-  const rawInterval = cell(row, index("interval"));
-  const rawRemarks = cell(row, index("remarks"));
-
-  const nextDate = rawDate || carryDate;
-  const dateKey = parseDateKey(nextDate);
-  const monthKey = dateKey ? dateKey.slice(0, 7) : "";
-  const good = parseNumber(rawGood);
-  const reject = parseNumber(rawReject);
-  const shots = good + reject;
-
-  const hasContent = Boolean(rawDate || rawTime || rawBrand || rawGood || rawReject || rawSack || rawShift || rawInterval || rawRemarks);
-  const hasNumbers = shots > 0 || parseNumber(cell(row, index("shots"))) > 0;
-  if (!hasContent || !hasNumbers || !dateKey) {
-    return { record: null, nextDate };
-  }
-
-  const explicitShots = parseNumber(cell(row, index("shots")));
-  const finalShots = explicitShots > 0 ? explicitShots : shots;
-  const finalGood = good > 0 ? good : Math.max(0, finalShots - reject);
-
-  return {
-    record: {
-      rowNumber,
-      tabName,
-      date: nextDate,
-      dateKey,
-      monthKey,
-      time: rawTime,
-      shift: rawShift,
-      interval: rawInterval,
-      brand: rawBrand,
-      sack: rawSack,
-      good: finalGood,
-      reject,
-      shots: finalShots,
-      remarks: rawRemarks,
-      status: statusFor({ reject, shots: finalShots }),
-    },
-    nextDate,
-  };
-}
-
 export async function getPelletsTabs(): Promise<string[]> {
   return withSheetsAuthError(async () => {
     const sheets = getSheetsClient();
@@ -250,26 +126,53 @@ export async function getPelletsData(tabName: string): Promise<PelletRecord[]> {
     const sheets = getSheetsClient();
     const res = await sheets.spreadsheets.values.get({
       spreadsheetId,
-      range: `${tabName}!A1:AZ1000`,
+      range: `${tabName}!A:G`,
+      valueRenderOption: "FORMATTED_VALUE",
     });
 
     const rows = res.data.values || [];
-    const headerRowIndex = findHeaderRow(rows);
-    const fieldMap = headerRowIndex >= 0 ? buildFieldMap(rows[headerRowIndex]) : undefined;
-    const startRow = headerRowIndex >= 0 ? headerRowIndex + 1 : 0;
     const records: PelletRecord[] = [];
-    let carryDate = "";
 
-    for (let i = startRow; i < rows.length; i++) {
+    for (let i = 3; i < rows.length; i++) {
       const row = rows[i];
       if (!row) continue;
+      // Pad row so trailing empty cells (e.g. col G) are always accessible
+      while (row.length < 7) row.push("");
 
-    const joined = row.map((value: any) => String(value ?? "").trim().toLowerCase()).join(" ");
-      if (!joined || joined.includes("total")) continue;
+      const rawDate   = cell(row, 0); // A = Date
+      const rawSack   = cell(row, 1); // B = Sack Number
+      const rawTime   = cell(row, 2); // C = Time
+      const rawGood   = cell(row, 3); // D = Shot Blasting Good
+      const rawReject = cell(row, 4); // E = Reject
+      const rawBrand  = cell(row, 5); // F = Brands
+      const rawKgs    = cell(row, 6); // G = kgs
 
-      const result = inferRecord(row, i + 1, tabName, carryDate, fieldMap);
-      carryDate = result.nextDate || carryDate;
-      if (result.record) records.push(result.record);
+      if (!rawDate && !rawSack && !rawTime && !rawGood && !rawReject && !rawBrand && !rawKgs) continue;
+
+      const good   = parseNumber(rawGood);
+      const reject = parseNumber(rawReject);
+      const shots  = good + reject;
+      const dateKey  = parseDateKey(rawDate);
+      const monthKey = dateKey ? dateKey.slice(0, 7) : "";
+
+      records.push({
+        rowNumber: i + 1,
+        tabName,
+        date: rawDate,
+        dateKey,
+        monthKey,
+        sack: rawSack,
+        time: rawTime,
+        shift: "",
+        interval: "",
+        brand: rawBrand,
+        good,
+        reject,
+        shots,
+        kgs: rawKgs,
+        remarks: "",
+        status: statusFor({ reject, shots }),
+      });
     }
 
     return records;

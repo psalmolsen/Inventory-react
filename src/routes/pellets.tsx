@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   PieChart,
@@ -25,6 +25,7 @@ import {
   Search,
   ChevronDown,
   MoreVertical,
+  Plus,
 } from "lucide-react";
 import { Sidebar } from "../components/Sidebar";
 import { getPelletsDataFn, getPelletsTabsFn } from "../lib/pellets-server-functions";
@@ -70,6 +71,14 @@ function initials(text: string) {
   return words.slice(0, 2).map((word) => word[0]).join("").toUpperCase();
 }
 
+function toOrdinal(n: number | string): string {
+  const num = typeof n === "string" ? parseInt(n, 10) : n;
+  if (isNaN(num)) return String(n);
+  const s = ["th", "st", "nd", "rd"];
+  const v = num % 100;
+  return num + (s[(v - 20) % 10] || s[v] || s[0]);
+}
+
 function groupSum(records: PelletRecord[], getter: (record: PelletRecord) => string) {
   const map = new Map<string, { label: string; good: number; reject: number; shots: number; count: number }>();
   for (const record of records) {
@@ -104,23 +113,26 @@ function inferMonthOptions(records: PelletRecord[]) {
 // ─── KPI Card (same style as Material Monitoring) ───────────────────────────
 function CnfKpi({ label, value, unit, variant }: {
   label: string; value: string; unit?: string;
-  variant: "shade1" | "shade2" | "shade3" | "shade4" | "shade5";
+  variant: "blue" | "blue2" | "blue3" | "navy" | "gold";
 }) {
   const styles = {
-    shade1: "bg-[#2E3EA8] text-white",
-    shade2: "bg-[#29399A] text-white",
-    shade3: "bg-[#25348C] text-white",
-    shade4: "bg-[#202F76] text-white",
-    shade5: "bg-[#1A2560] text-white",
+    blue:   "bg-[#2E3EA8] text-white",
+    blue3:  "bg-[#273690] text-white",
+    blue2:  "bg-[#202D78] text-white",
+    navy:   "bg-[#1A2560] text-white",
+    gold:   "bg-gradient-to-br from-[#C8861A] to-[#E9B52D] text-white",
   }[variant];
+  const labelColor = (variant === "gold") ? "text-white/70" : "text-white/70";
+  const unitColor  = (variant === "gold") ? "text-white/80" : "text-white/80";
+
   return (
-    <div className={`relative overflow-hidden rounded-2xl p-4 shadow-sm ${styles}`}>
-      <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-white/70">{label}</div>
-      <div className="mt-2 flex items-baseline gap-2">
-        <div className="text-[24px] font-extrabold leading-none">{value}</div>
-        {unit && <div className="text-[11px] font-semibold uppercase tracking-widest text-white/80">{unit}</div>}
+    <div className={`relative overflow-hidden rounded-2xl p-5 shadow-sm ${styles}`}>
+      <div className={`text-[10px] font-semibold uppercase tracking-[0.16em] ${labelColor}`}>{label}</div>
+      <div className="mt-3 flex items-baseline gap-2">
+        <div className="text-[30px] font-extrabold leading-none">{value}</div>
+        {unit && <div className={`text-[12px] font-semibold uppercase tracking-widest ${unitColor}`}>{unit}</div>}
       </div>
-      <div className="pointer-events-none absolute -right-4 -bottom-4 h-16 w-16 rounded-full bg-white/5" />
+      <div className="pointer-events-none absolute -right-6 -bottom-6 h-24 w-24 rounded-full bg-white/5" />
     </div>
   );
 }
@@ -167,6 +179,11 @@ function PelletsDashboard() {
   const [month, setMonth] = useState("All");
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState("All");
+  const [trendView, setTrendView] = useState<"byDay" | "bySack" | "byShift">("byDay");
+  const [tableMonth, setTableMonth] = useState("All");
+  const [tableView, setTableView] = useState<"month" | "sack">("month");
+  const [visibleCount, setVisibleCount] = useState(50);
+  const scrollRef = useRef<HTMLDivElement>(null);
 
   const monthOptions = useMemo(() => inferMonthOptions(records), [records]);
   const focusRecords = useMemo(() => {
@@ -205,31 +222,143 @@ function PelletsDashboard() {
   const brandData = useMemo(() => groupSum(focusRecords, (record) => record.brand || record.shift || "Unknown"), [focusRecords]);
   const shiftData = useMemo(() => groupSum(focusRecords, (record) => record.shift || timeBucket(record.time)), [focusRecords]);
   const trendData = useMemo(() => {
-    const map = new Map<string, { day: string; shots: number }>();
-    for (const record of focusRecords) {
-      const current = map.get(record.dateKey) || { day: record.dateKey, shots: 0 };
-      current.shots += record.shots;
-      map.set(record.dateKey, current);
+    if (trendView === "byDay") {
+      const map = new Map<string, { day: string; shots: number }>();
+      for (const record of focusRecords) {
+        const current = map.get(record.dateKey) || { day: record.dateKey, shots: 0 };
+        current.shots += record.shots;
+        map.set(record.dateKey, current);
+      }
+      return Array.from(map.entries())
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([, value]) => ({
+          day: value.day.slice(5),
+          shots: value.shots,
+        }));
+    } else if (trendView === "bySack") {
+      const map = new Map<string, { sack: string; shots: number }>();
+      for (const record of focusRecords) {
+        const sack = record.sack || "Unknown";
+        const current = map.get(sack) || { sack, shots: 0 };
+        current.shots += record.shots;
+        map.set(sack, current);
+      }
+      return Array.from(map.entries())
+        .sort(([, a], [, b]) => b.shots - a.shots)
+        .map(([key, value]) => ({
+          day: key,
+          shots: value.shots,
+        }));
+    } else if (trendView === "byShift") {
+      const map = new Map<string, { shift: string; shots: number }>();
+      for (const record of focusRecords) {
+        const shift = record.shift || timeBucket(record.time);
+        const current = map.get(shift) || { shift, shots: 0 };
+        current.shots += record.shots;
+        map.set(shift, current);
+      }
+      return Array.from(map.entries())
+        .sort(([, a], [, b]) => b.shots - a.shots)
+        .map(([key, value]) => ({
+          day: key,
+          shots: value.shots,
+        }));
     }
-    return Array.from(map.entries())
-      .sort(([a], [b]) => a.localeCompare(b))
-      .map(([, value]) => ({
-        day: value.day.slice(5),
-        shots: value.shots,
-      }));
-  }, [focusRecords]);
+    return [];
+  }, [focusRecords, trendView]);
 
-  const pieData = [
-    { name: "Good", value: totalGood },
-    { name: "Reject", value: totalReject },
-  ];
+  const pieData = useMemo(() => {
+    let filteredRecords = focusRecords;
+    
+    if (trendView === "bySack") {
+      // Group by sack and show donut for top sack
+      const sackMap = new Map<string, typeof focusRecords>();
+      for (const record of focusRecords) {
+        const sack = record.sack || "Unknown";
+        const existing = sackMap.get(sack) || [];
+        existing.push(record);
+        sackMap.set(sack, existing);
+      }
+      const topSack = Array.from(sackMap.entries()).sort((a, b) => {
+        const aShots = a[1].reduce((sum, r) => sum + r.shots, 0);
+        const bShots = b[1].reduce((sum, r) => sum + r.shots, 0);
+        return bShots - aShots;
+      })[0];
+      if (topSack) {
+        filteredRecords = topSack[1];
+      }
+    } else if (trendView === "byShift") {
+      // Group by shift and show donut for top shift
+      const shiftMap = new Map<string, typeof focusRecords>();
+      for (const record of focusRecords) {
+        const shift = record.shift || timeBucket(record.time);
+        const existing = shiftMap.get(shift) || [];
+        existing.push(record);
+        shiftMap.set(shift, existing);
+      }
+      const topShift = Array.from(shiftMap.entries()).sort((a, b) => {
+        const aShots = a[1].reduce((sum, r) => sum + r.shots, 0);
+        const bShots = b[1].reduce((sum, r) => sum + r.shots, 0);
+        return bShots - aShots;
+      })[0];
+      if (topShift) {
+        filteredRecords = topShift[1];
+      }
+    }
+    // For byDay, use all records
+    
+    const good = filteredRecords.reduce((sum, record) => sum + record.good, 0);
+    const reject = filteredRecords.reduce((sum, record) => sum + record.reject, 0);
+    return [
+      { name: "Good", value: good },
+      { name: "Reject", value: reject },
+    ];
+  }, [focusRecords, trendView]);
 
   const maxBrand = Math.max(...brandData.map((item) => item.shots), 1);
   const maxTrend = Math.max(...trendData.map((item) => item.shots), 1);
 
   const topBrand = brandData[0]?.label || "No data";
   const topShift = shiftData[0]?.label || "No data";
-  const visibleRows = focusRecords.slice(0, 20);
+
+  useEffect(() => { setVisibleCount(50); }, [tableMonth, search, tableView]);
+
+  const tableRecords = useMemo(() => {
+    let filtered = records;
+
+    // Filter based on view type
+    if (tableView === "month") {
+      filtered = tableMonth === "All" ? records : records.filter((record) => record.monthKey === tableMonth);
+    } else if (tableView === "sack") {
+      // Group by sack and show all
+      filtered = records;
+    }
+
+    // Sort by date (most recent first)
+    filtered = [...filtered].sort((a, b) => {
+      const dateA = new Date(a.dateKey || "0");
+      const dateB = new Date(b.dateKey || "0");
+      return dateB.getTime() - dateA.getTime();
+    });
+
+    // Apply search filter
+    const searchLower = search.trim().toLowerCase();
+    return filtered.filter((record) => {
+      if (!searchLower) return true;
+      const blob = [
+        record.date,
+        record.time,
+        record.brand,
+        record.sack,
+        String(record.good),
+        String(record.reject),
+      ].join(" ").toLowerCase();
+      return blob.includes(searchLower);
+    });
+  }, [records, tableMonth, search, tableView]);
+
+  const visibleRows = tableRecords.slice(0, visibleCount);
+  const hasMore = visibleCount < tableRecords.length;
   const displayError = error instanceof Error ? error : null;
 
   return (
@@ -239,7 +368,7 @@ function PelletsDashboard() {
 
         <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden lg:pl-0 pl-0">
           <header className="border-b-2 border-destructive bg-card">
-            <div className="flex items-start justify-between px-8 py-5">
+            <div className="flex items-start px-8 py-5">
               <div className="flex gap-3">
                 <div className="w-1 rounded-full bg-destructive" />
                 <div>
@@ -249,49 +378,10 @@ function PelletsDashboard() {
                   </p>
                 </div>
               </div>
-              <div className="flex items-center gap-3">
-                <div className="text-right">
-                  <div className="text-[10px] font-semibold uppercase tracking-[0.15em] text-muted-foreground">
-                    CCB Inventory Clerk
-                  </div>
-                </div>
-                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary text-sm font-bold text-primary-foreground">
-                  AB
-                </div>
-              </div>
             </div>
           </header>
 
           <main className="flex-1 overflow-y-auto px-8 py-6">
-            <div className="mb-6 flex flex-wrap items-center gap-2">
-              <button
-                onClick={() => setMonth("All")}
-                className={`rounded-md px-4 py-2 text-xs font-bold uppercase tracking-wider transition ${
-                  month === "All" ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:bg-muted"
-                }`}
-              >
-                All
-              </button>
-              {monthOptions.map((option) => (
-                <button
-                  key={option.key}
-                  onClick={() => setMonth(option.key)}
-                  className={`rounded-md px-4 py-2 text-xs font-bold uppercase tracking-wider transition ${
-                    month === option.key ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:bg-muted"
-                  }`}
-                >
-                  {option.label}
-                </button>
-              ))}
-            </div>
-
-            <div className="mb-4 flex items-center gap-2 text-xs font-semibold uppercase tracking-wider">
-              <BarChart3 className="h-4 w-4 text-warning" />
-              <span className="text-muted-foreground">Selected:</span>
-              <span className="text-primary">
-                {month === "All" ? "All records" : monthName(month)} - Shift: All · Brand: All
-              </span>
-            </div>
 
             {isLoading ? (
               <div className="rounded-xl border border-dashed border-border bg-white p-10 text-center text-sm text-muted-foreground">
@@ -307,194 +397,217 @@ function PelletsDashboard() {
               </div>
             ) : (
               <>
-                <section className="mb-6 grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-5">
-                  <CnfKpi variant="shade1" label="Good Shots" value={totalGood.toLocaleString()} unit="shots" />
-                  <CnfKpi variant="shade2" label="Rejects" value={totalReject.toLocaleString()} unit="shots" />
-                  <CnfKpi variant="shade3" label="Reject %" value={totalShots ? ((totalReject / totalShots) * 100).toFixed(1) : "0.0"} unit="%" />
-                  <CnfKpi variant="shade4" label="Efficiency" value={passRate.toFixed(1)} unit="%" />
-                  <CnfKpi variant="shade5" label="Total Shots" value={totalShots.toLocaleString()} unit="shots" />
+                <section className="mb-6 grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-4">
+                  <CnfKpi variant="blue" label="Good Shots" value={totalGood.toLocaleString()} unit="shots" />
+                  <CnfKpi variant="blue3" label="Rejects" value={totalReject.toLocaleString()} unit="shots" />
+                  <CnfKpi variant="blue2" label="Reject %" value={totalShots ? ((totalReject / totalShots) * 100).toFixed(1) : "0.0"} unit="%" />
+                  <CnfKpi variant="navy" label="Efficiency" value={passRate.toFixed(1)} unit="%" />
                 </section>
 
-                <section className="mb-6 grid gap-4 lg:grid-cols-2">
-                  <Panel title="Good vs Reject">
-                    <div className="flex items-center gap-6">
-                      <div className="h-56 flex-1">
-                        <ResponsiveContainer width="100%" height="100%">
+                <section className="mb-6 rounded-2xl bg-card border border-border shadow-sm overflow-hidden">
+                  <div className="flex items-center justify-between px-5 py-4 border-b border-border">
+                    <div>
+                      <h3 className="text-[13.5px] font-bold text-primary">Production Overview</h3>
+                      <p className="text-[11px] text-muted-foreground mt-0.5">Pellets shots and quality breakdown</p>
+                    </div>
+                    <div className="relative">
+                      <select
+                        value={trendView}
+                        onChange={(e) => setTrendView(e.target.value as "byDay" | "bySack" | "byShift")}
+                        className="appearance-none rounded-lg border border-border bg-muted pl-3 pr-8 py-2 text-[12.5px] font-semibold text-primary outline-none focus:border-primary"
+                      >
+                        <option value="byDay">By Day</option>
+                        <option value="bySack">By Sack</option>
+                        <option value="byShift">By Shift</option>
+                      </select>
+                      <ChevronDown size={14} className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 xl:grid-cols-[1fr_300px] divide-y xl:divide-y-0 xl:divide-x divide-border">
+                    <div className="p-5">
+                      <div className="mb-3">
+                        <p className="text-[12px] font-bold text-primary">Shots Trend</p>
+                        <p className="text-[11px] text-muted-foreground">Total shots per {trendView === "byDay" ? "day" : trendView === "bySack" ? "sack" : "shift"} period</p>
+                      </div>
+                      {trendData.length === 0 ? (
+                        <div className="flex items-center justify-center h-48 text-muted-foreground text-sm">No data available</div>
+                      ) : (
+                        <ResponsiveContainer width="100%" height={220}>
+                          <LineChart data={trendData} margin={{ top: 8, right: 8, left: -20, bottom: 0 }}>
+                            <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" />
+                            <XAxis dataKey="day" tick={{ fontSize: 10, fill: "var(--color-muted-foreground)" }} axisLine={false} tickLine={false} />
+                            <YAxis tick={{ fontSize: 10, fill: "var(--color-muted-foreground)" }} axisLine={false} tickLine={false} />
+                            <Tooltip contentStyle={{ background: "var(--color-popover)", border: "1px solid var(--color-border)", borderRadius: 8, fontSize: 12 }} />
+                            <Line
+                              type="monotone"
+                              dataKey="shots"
+                              stroke="var(--color-primary)"
+                              strokeWidth={2.5}
+                              dot={{ fill: "var(--color-primary)", r: 4, strokeWidth: 0 }}
+                              activeDot={{ r: 6, fill: "var(--color-primary)", stroke: "#fff", strokeWidth: 2 }}
+                            />
+                          </LineChart>
+                        </ResponsiveContainer>
+                      )}
+                    </div>
+
+                    <div className="p-5 flex flex-col">
+                      <div className="mb-3">
+                        <p className="text-[12px] font-bold text-primary">Good vs Reject</p>
+                        <p className="text-[11px] text-muted-foreground">Quality breakdown</p>
+                      </div>
+                      <div className="relative flex items-center justify-center flex-1">
+                        <ResponsiveContainer width="100%" height={180}>
                           <PieChart>
-                            <Pie data={pieData} innerRadius={55} outerRadius={85} dataKey="value" stroke="none" paddingAngle={2}>
+                            <Pie
+                              data={pieData}
+                              dataKey="value"
+                              innerRadius="60%"
+                              outerRadius="85%"
+                              startAngle={90}
+                              endAngle={-270}
+                            >
                               <Cell fill="var(--color-primary)" />
                               <Cell fill="var(--color-destructive)" />
                             </Pie>
                             <Tooltip contentStyle={{ background: "var(--color-popover)", border: "1px solid var(--color-border)", borderRadius: 8, fontSize: 12 }} />
                           </PieChart>
                         </ResponsiveContainer>
-                      </div>
-                      <div className="space-y-3">
-                        <div>
-                          <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                            <span className="h-2.5 w-2.5 rounded-sm bg-primary" /> Good
-                          </div>
-                          <div className="text-2xl font-bold tabular-nums text-primary">{totalGood.toLocaleString()}</div>
-                        </div>
-                        <div>
-                          <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                            <span className="h-2.5 w-2.5 rounded-sm bg-destructive" /> Reject
-                          </div>
-                          <div className="text-2xl font-bold tabular-nums text-destructive">{totalReject.toLocaleString()}</div>
+                        <div className="absolute text-center pointer-events-none">
+                          <div className="text-[22px] font-extrabold text-primary leading-none">{passRate.toFixed(1)}%</div>
+                          <div className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground mt-1">Efficiency</div>
                         </div>
                       </div>
-                    </div>
-                  </Panel>
-
-                  <Panel title="Shots Trend">
-                    <div className="h-56">
-                      <ResponsiveContainer width="100%" height="100%">
-                        <LineChart data={trendData}>
-                          <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" />
-                          <XAxis dataKey="day" stroke="var(--color-muted-foreground)" fontSize={12} />
-                          <YAxis stroke="var(--color-muted-foreground)" fontSize={12} />
-                          <Tooltip contentStyle={{ background: "var(--color-popover)", border: "1px solid var(--color-border)", borderRadius: 8, fontSize: 12 }} />
-                          <Line type="monotone" dataKey="shots" stroke="var(--color-primary)" strokeWidth={2.5} dot={{ fill: "var(--color-primary)", r: 4 }} activeDot={{ r: 6 }} />
-                        </LineChart>
-                      </ResponsiveContainer>
-                    </div>
-                  </Panel>
-                </section>
-
-                <section className="mb-6 grid gap-4 lg:grid-cols-2">
-                  <Panel title="Brand Performance">
-                    <div className="space-y-4">
-                      {brandData.slice(0, 5).map((brand) => (
-                        <div key={brand.label}>
-                          <div className="mb-1.5 flex justify-between text-sm">
-                            <span className="font-semibold text-primary">{brand.label}</span>
-                            <span className="tabular-nums text-muted-foreground">{brand.shots.toLocaleString()}</span>
+                      <div className="mt-3 space-y-2">
+                        <div className="flex items-center justify-between rounded-lg bg-muted px-3 py-2">
+                          <div className="flex items-center gap-2">
+                            <span className="h-2.5 w-2.5 rounded-full bg-[var(--color-primary)]" />
+                            <span className="text-[12px] font-semibold text-primary">Good</span>
                           </div>
-                          <div className="h-2.5 overflow-hidden rounded-full bg-muted">
-                            <div className="h-full rounded-full bg-primary transition-all" style={{ width: `${(brand.shots / maxBrand) * 100}%` }} />
-                          </div>
+                          <span className="text-[13px] font-bold text-primary">{totalGood.toLocaleString()}</span>
                         </div>
-                      ))}
+                        <div className="flex items-center justify-between rounded-lg bg-muted px-3 py-2">
+                          <div className="flex items-center gap-2">
+                            <span className="h-2.5 w-2.5 rounded-full bg-[var(--color-destructive)]" />
+                            <span className="text-[12px] font-semibold text-destructive">Reject</span>
+                          </div>
+                          <span className="text-[13px] font-bold text-destructive">{totalReject.toLocaleString()}</span>
+                        </div>
+                      </div>
                     </div>
-                  </Panel>
-
-                  <Panel title="Shift Performance">
-                    <div className="h-56">
-                      <ResponsiveContainer width="100%" height="100%">
-                        <BarChart data={shiftData} layout="vertical" margin={{ left: 20 }}>
-                          <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" horizontal={false} />
-                          <XAxis type="number" stroke="var(--color-muted-foreground)" fontSize={12} />
-                          <YAxis type="category" dataKey="label" stroke="var(--color-muted-foreground)" fontSize={12} width={100} />
-                          <Tooltip contentStyle={{ background: "var(--color-popover)", border: "1px solid var(--color-border)", borderRadius: 8, fontSize: 12 }} cursor={{ fill: "var(--color-muted)" }} />
-                          <Bar dataKey="shots" fill="var(--color-primary)" radius={[0, 6, 6, 0]} />
-                        </BarChart>
-                      </ResponsiveContainer>
-                    </div>
-                  </Panel>
+                  </div>
                 </section>
 
-                <section className="mb-6 rounded-xl bg-card p-5 shadow-sm ring-1 ring-border">
-                  <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-                    <div className="flex items-center gap-2">
-                      <div className="h-5 w-1 rounded-full bg-destructive" />
-                      <h2 className="text-base font-bold text-primary">Live Interval Table</h2>
-                      <span className="ml-1 rounded-full bg-muted px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                        {visibleRows.length} rows
+                <section className="mb-6 rounded-2xl bg-card border border-border shadow-sm overflow-hidden">
+                  <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-4 px-5 py-3 border-b border-border">
+                    <div>
+                      <h3 className="text-[13.5px] font-bold text-primary">Pellets Records</h3>
+                      <p className="text-[11px] text-muted-foreground mt-0.5">{tableRecords.length} records</p>
+                    </div>
+
+                    <div className="flex items-center rounded-lg border border-border bg-white overflow-hidden">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const idx = monthOptions.findIndex(o => o.key === tableMonth);
+                          if (idx > 0) setTableMonth(monthOptions[idx - 1].key);
+                        }}
+                        disabled={monthOptions.findIndex(o => o.key === tableMonth) <= 0}
+                        className="px-3 py-2 text-[15px] leading-none text-muted-foreground hover:text-primary hover:bg-muted disabled:opacity-30 disabled:cursor-not-allowed transition border-r border-border"
+                      >‹</button>
+                      <span className="px-5 py-2 text-[13px] font-bold text-primary min-w-[150px] text-center">
+                        {tableMonth === "All" ? "All Months" : monthName(tableMonth)}
                       </span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const idx = monthOptions.findIndex(o => o.key === tableMonth);
+                          if (idx < monthOptions.length - 1) setTableMonth(monthOptions[idx + 1].key);
+                        }}
+                        disabled={monthOptions.findIndex(o => o.key === tableMonth) >= monthOptions.length - 1}
+                        className="px-3 py-2 text-[15px] leading-none text-muted-foreground hover:text-primary hover:bg-muted disabled:opacity-30 disabled:cursor-not-allowed transition border-l border-border"
+                      >›</button>
                     </div>
-                    <div className="flex items-center gap-2">
+
+                    <div className="flex items-center gap-2 justify-end">
                       <div className="relative">
-                        <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                        <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
                         <input
                           value={search}
-                          onChange={(e) => setSearch(e.target.value)}
-                          placeholder="Search rows..."
-                          className="h-9 w-64 rounded-full bg-muted pl-9 pr-3 text-sm outline-none placeholder:text-muted-foreground focus:ring-2 focus:ring-ring"
+                          onChange={e => setSearch(e.target.value)}
+                          placeholder="Search..."
+                          className="pl-8 pr-3 py-2 rounded-lg border border-border bg-muted text-[12px] text-primary placeholder:text-muted-foreground outline-none focus:border-primary w-44"
                         />
                       </div>
-                      <button className="inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-3 py-2 text-xs font-semibold">
-                        {month === "All" ? "All Months" : monthName(month)} <ChevronDown className="h-3.5 w-3.5" />
-                      </button>
-                      <button className="inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-3 py-2 text-xs font-semibold">
-                        {status === "All" ? "All Status" : status} <ChevronDown className="h-3.5 w-3.5" />
-                      </button>
-                      <button className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground">
-                        <Download className="h-3.5 w-3.5" /> Export
+                      <div className="relative">
+                        <select
+                          value={tableView}
+                          onChange={(e) => setTableView(e.target.value as "month" | "sack")}
+                          className="appearance-none rounded-lg border border-border bg-card pl-3 pr-8 py-2 text-[12px] font-semibold text-primary outline-none focus:border-primary"
+                        >
+                          <option value="month">Month</option>
+                          <option value="sack">Per Sack</option>
+                        </select>
+                        <ChevronDown size={13} className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                      </div>
+                      <button className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground hover:bg-primary/90">
+                        <Plus size={13} /> Add Record
                       </button>
                     </div>
                   </div>
 
-                  <div className="space-y-3">
-                    {visibleRows.map((record) => (
-                      <div key={`${record.tabName}-${record.rowNumber}`} className="flex items-center gap-4 rounded-lg px-4 py-4 ring-1 ring-border transition hover:ring-primary/30">
-                        <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-md bg-muted text-primary">
-                          <BarChart3 className="h-5 w-5" />
-                        </div>
-                        <div className="min-w-[150px]">
-                          <div className="text-sm font-bold text-primary">
-                            {record.interval || record.time || "Unspecified"}
-                          </div>
-                          <div className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
-                            {record.brand || "Unknown brand"} · {record.sack || "n/a"}
-                          </div>
-                        </div>
+                  <div ref={scrollRef} className="overflow-x-auto overflow-y-auto" style={{ minHeight: "320px", maxHeight: "420px" }}
+                    onScroll={(e) => {
+                      const el = e.currentTarget;
+                      if (hasMore && el.scrollTop + el.clientHeight >= el.scrollHeight - 80) {
+                        setVisibleCount(c => c + 50);
+                      }
+                    }}>
+                    <table className="w-full text-[12.5px]" style={{ borderCollapse: "collapse" }}>
+                      <thead>
+                        <tr className="bg-muted border-b border-border">
+                          {["Date", "Sack #", "Time", "Shot Blasting Good", "Reject", "Brands", "kgs"].map(h => (
+                            <th key={h} className="px-4 py-3 text-left text-[10px] font-bold uppercase tracking-wider text-muted-foreground whitespace-nowrap sticky top-0 bg-muted z-10">
+                              {h}
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {visibleRows.map((record, idx) => {
+                          const zebra = idx % 2 === 1 ? "bg-[#FAFBFF]" : "bg-white";
+                          return (
+                            <tr key={`${record.tabName}-${record.rowNumber}`}
+                              className={`${zebra} hover:bg-primary/5 border-b border-border transition-colors`}>
+                              <td className="px-4 py-3 whitespace-nowrap text-primary font-medium">{record.date || "—"}</td>
+                              <td className="px-4 py-3 whitespace-nowrap text-muted-foreground">{record.sack || "—"}</td>
+                              <td className="px-4 py-3 whitespace-nowrap text-muted-foreground">{record.time || "—"}</td>
+                              <td className="px-4 py-3 whitespace-nowrap font-bold text-primary">{record.good.toLocaleString()}</td>
+                              <td className="px-4 py-3 whitespace-nowrap font-bold text-destructive">{record.reject.toLocaleString()}</td>
+                              <td className="px-4 py-3 whitespace-nowrap text-primary">{record.brand || "—"}</td>
+                              <td className="px-4 py-3 whitespace-nowrap text-muted-foreground">{record.kgs || "—"}</td>
+                            </tr>
+                          );
+                        })}
+                        {visibleRows.length === 0 && (
+                          <tr>
+                            <td colSpan={7} className="px-4 py-10 text-center text-muted-foreground text-sm">
+                              No records match your current filters.
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
 
-                        <div className="hidden gap-8 md:flex">
-                          <div>
-                            <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Good</div>
-                            <div className="text-lg font-bold tabular-nums text-primary">{record.good.toLocaleString()}</div>
-                          </div>
-                          <div>
-                            <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Reject</div>
-                            <div className="text-lg font-bold tabular-nums text-destructive">{record.reject.toLocaleString()}</div>
-                          </div>
-                          <div>
-                            <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Shots</div>
-                            <div className="text-lg font-bold tabular-nums">{record.shots.toLocaleString()}</div>
-                          </div>
-                        </div>
-
-                        <div className="ml-auto flex items-center gap-3">
-                          <StatusDot status={record.status} />
-                          <button className="rounded-md border border-border px-3 py-1.5 text-xs font-semibold hover:bg-muted">
-                            Details
-                          </button>
-                          <button className="p-1.5 text-muted-foreground hover:text-foreground">
-                            <MoreVertical className="h-4 w-4" />
-                          </button>
-                        </div>
-                      </div>
-                    ))}
+                  <div className="flex items-center justify-between px-5 py-3 border-t border-border bg-white">
+                    <p className="text-[11px] text-muted-foreground">
+                      Showing {visibleRows.length} of {tableRecords.length} records
+                    </p>
+                    {hasMore && <p className="text-[11px] text-muted-foreground">Scroll down to load more</p>}
                   </div>
                 </section>
-
-                <Panel title="Daily Trend">
-                  <div className="space-y-3">
-                    {Array.from(
-                      records.reduce((map, record) => {
-                        map.set(record.dateKey, (map.get(record.dateKey) || 0) + record.shots);
-                        return map;
-                      }, new Map<string, number>())
-                    )
-                      .sort(([a], [b]) => a.localeCompare(b))
-                      .slice(-8)
-                      .map(([dateKey, shots]) => (
-                        <div key={dateKey} className="flex items-center gap-4">
-                          <div className="w-24 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                            {dateKey.slice(5)}
-                          </div>
-                          <div className="h-8 flex-1 overflow-hidden rounded-md bg-muted">
-                            <div
-                              className="flex h-full items-center justify-end rounded-md bg-primary px-3 text-xs font-bold text-primary-foreground"
-                              style={{ width: `${Math.max(10, (shots / Math.max(maxTrend, 1)) * 100)}%` }}
-                            >
-                              {shots.toLocaleString()}
-                            </div>
-                          </div>
-                        </div>
-                      ))}
-                  </div>
-                </Panel>
               </>
             )}
 
