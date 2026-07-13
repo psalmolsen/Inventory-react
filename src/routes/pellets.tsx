@@ -180,7 +180,7 @@ function PelletsDashboard() {
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState("All");
   const [trendView, setTrendView] = useState<"byDay" | "bySack" | "byShift">("byDay");
-  const [tableMonth, setTableMonth] = useState("All");
+  const [tableFilter, setTableFilter] = useState<string>("All");
   const [tableView, setTableView] = useState<"month" | "sack">("month");
   const [visibleCount, setVisibleCount] = useState(50);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -321,17 +321,34 @@ function PelletsDashboard() {
   const topBrand = brandData[0]?.label || "No data";
   const topShift = shiftData[0]?.label || "No data";
 
-  useEffect(() => { setVisibleCount(50); }, [tableMonth, search, tableView]);
+  useEffect(() => { setVisibleCount(50); }, [tableFilter, search, tableView]);
+  useEffect(() => { setTableFilter("All"); }, [tableView]);
+
+  const sackOptions = useMemo(() => {
+    const seen = new Set<string>();
+    for (const r of records) { if (r.sack) seen.add(r.sack); }
+    return Array.from(seen).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+  }, [records]);
+
+  const navOptions = tableView === "month"
+    ? ["All", ...monthOptions.map(o => o.key)]
+    : ["All", ...sackOptions];
+
+  const navLabel = (val: string) => {
+    if (val === "All") return tableView === "month" ? "All Months" : "All Sacks";
+    if (tableView === "month") return monthName(val);
+    return `Sack ${val}`;
+  };
+
+  const navIdx = navOptions.indexOf(tableFilter);
 
   const tableRecords = useMemo(() => {
     let filtered = records;
 
-    // Filter based on view type
     if (tableView === "month") {
-      filtered = tableMonth === "All" ? records : records.filter((record) => record.monthKey === tableMonth);
-    } else if (tableView === "sack") {
-      // Group by sack and show all
-      filtered = records;
+      filtered = tableFilter === "All" ? records : records.filter((r) => r.monthKey === tableFilter);
+    } else {
+      filtered = tableFilter === "All" ? records : records.filter((r) => r.sack === tableFilter);
     }
 
     // Sort by date (most recent first)
@@ -509,23 +526,17 @@ function PelletsDashboard() {
                     <div className="flex items-center rounded-lg border border-border bg-white overflow-hidden">
                       <button
                         type="button"
-                        onClick={() => {
-                          const idx = monthOptions.findIndex(o => o.key === tableMonth);
-                          if (idx > 0) setTableMonth(monthOptions[idx - 1].key);
-                        }}
-                        disabled={monthOptions.findIndex(o => o.key === tableMonth) <= 0}
+                        onClick={() => { if (navIdx > 0) setTableFilter(navOptions[navIdx - 1]); }}
+                        disabled={navIdx <= 0}
                         className="px-3 py-2 text-[15px] leading-none text-muted-foreground hover:text-primary hover:bg-muted disabled:opacity-30 disabled:cursor-not-allowed transition border-r border-border"
                       >‹</button>
                       <span className="px-5 py-2 text-[13px] font-bold text-primary min-w-[150px] text-center">
-                        {tableMonth === "All" ? "All Months" : monthName(tableMonth)}
+                        {navLabel(tableFilter)}
                       </span>
                       <button
                         type="button"
-                        onClick={() => {
-                          const idx = monthOptions.findIndex(o => o.key === tableMonth);
-                          if (idx < monthOptions.length - 1) setTableMonth(monthOptions[idx + 1].key);
-                        }}
-                        disabled={monthOptions.findIndex(o => o.key === tableMonth) >= monthOptions.length - 1}
+                        onClick={() => { if (navIdx < navOptions.length - 1) setTableFilter(navOptions[navIdx + 1]); }}
+                        disabled={navIdx >= navOptions.length - 1}
                         className="px-3 py-2 text-[15px] leading-none text-muted-foreground hover:text-primary hover:bg-muted disabled:opacity-30 disabled:cursor-not-allowed transition border-l border-border"
                       >›</button>
                     </div>
