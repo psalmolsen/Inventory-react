@@ -372,7 +372,7 @@ function PelletsDashboard() {
       ].join(" ").toLowerCase();
       return blob.includes(searchLower);
     });
-  }, [records, tableMonth, search, tableView]);
+  }, [records, tableFilter, search, tableView]);
 
   const visibleRows = tableRecords.slice(0, visibleCount);
   const hasMore = visibleCount < tableRecords.length;

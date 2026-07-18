@@ -5,16 +5,34 @@ import { google } from "googleapis";
 export function resolveCredentialsPath(preferredEnvVar: string, fallbackEnvVar?: string) {
   const rawPath =
     process.env[preferredEnvVar] ||
-    (fallbackEnvVar ? process.env[fallbackEnvVar] : undefined) ||
-    "./service-account.json";
+    (fallbackEnvVar ? process.env[fallbackEnvVar] : undefined);
 
-  return path.isAbsolute(rawPath) ? rawPath : path.resolve(process.cwd(), rawPath);
+  if (!rawPath) {
+    throw new Error(
+      `Missing Google credentials path. Set ${preferredEnvVar}${fallbackEnvVar ? ` or ${fallbackEnvVar}` : ""} to a JSON key file stored outside the repository.`
+    );
+  }
+
+  const resolvedPath = path.isAbsolute(rawPath) ? rawPath : path.resolve(process.cwd(), rawPath);
+  const repoRoot = path.resolve(process.cwd());
+  const relativeToRepo = path.relative(repoRoot, resolvedPath);
+  const isInsideRepo =
+    relativeToRepo === "" ||
+    (!relativeToRepo.startsWith("..") && !path.isAbsolute(relativeToRepo));
+
+  if (isInsideRepo) {
+    throw new Error(
+      `Google credentials must live outside the repository to avoid secret scanning leaks. Move the JSON key to a path like C:\\Users\\USER\\secrets\\ccb-service-account.json and update ${preferredEnvVar}${fallbackEnvVar ? ` or ${fallbackEnvVar}` : ""}.`
+    );
+  }
+
+  return resolvedPath;
 }
 
 export function createSheetsClient(credentialsPath: string) {
   if (!fs.existsSync(credentialsPath)) {
     throw new Error(
-      `Google credentials file not found at "${credentialsPath}". Set GOOGLE_APPLICATION_CREDENTIALS or CNF_GOOGLE_APPLICATION_CREDENTIALS to a valid JSON key file.`
+      `Google credentials file not found at "${credentialsPath}". Set the relevant *_GOOGLE_APPLICATION_CREDENTIALS env var to a valid JSON key file stored outside the repository.`
     );
   }
 
