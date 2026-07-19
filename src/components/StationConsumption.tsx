@@ -289,19 +289,21 @@ export default function StationConsumption() {
                     open={addOpen}
                     onOpenChange={setAddOpen}
                     materials={materials}
-                    onAdd={async (rec) => {
-                      const stationRecord: StationConsumptionRecord = {
-                        date: rec.date,
-                        station: rec.station,
-                        materialCode: rec.description, // Use description as identifier
-                        description: rec.description,
-                        quantity: rec.qty,
-                        uom: rec.uom,
-                        unitCost: rec.unitPrice,
-                        totalCost: rec.qty * rec.unitPrice,
-                        signature: rec.signature,
-                      };
-                      await addStationConsumptionRecordFn({ data: stationRecord });
+                    onCheckout={async (records) => {
+                      for (const rec of records) {
+                        const stationRecord: StationConsumptionRecord = {
+                          date: rec.date,
+                          station: rec.station,
+                          materialCode: rec.materialCode,
+                          description: rec.description,
+                          quantity: rec.qty,
+                          uom: rec.uom,
+                          unitCost: rec.unitPrice,
+                          totalCost: rec.qty * rec.unitPrice,
+                          signature: rec.signature,
+                        };
+                        await addStationConsumptionRecordFn({ data: stationRecord });
+                      }
                       refetch();
                       setAddOpen(false);
                     }}

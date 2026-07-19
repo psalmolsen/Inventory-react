@@ -109,6 +109,20 @@ function statusFor(record: { reject: number; shots: number }): PelletRecord["sta
   return "warn";
 }
 
+function toOrdinalLabel(value: string | number, fallbackIndex: number) {
+  const num = typeof value === "number" ? value : Number(String(value).trim());
+  if (Number.isFinite(num) && num > 0) {
+    const s = ["th", "st", "nd", "rd"];
+    const v = num % 100;
+    return `${num}${s[(v - 20) % 10] || s[v] || s[0]}`;
+  }
+
+  const fallback = fallbackIndex + 1;
+  const s = ["th", "st", "nd", "rd"];
+  const v = fallback % 100;
+  return `${fallback}${s[(v - 20) % 10] || s[v] || s[0]}`;
+}
+
 export async function getPelletsTabs(): Promise<string[]> {
   return withSheetsAuthError(async () => {
     const sheets = getSheetsClient();
@@ -187,6 +201,81 @@ export async function getPelletsDataAll(): Promise<PelletRecord[]> {
       records.push(...(await getPelletsData(tab)));
     }
     return records;
+  });
+}
+
+export async function appendPelletsRecord(
+  tabName: string,
+  report: {
+    dateGroups: {
+      date: string;
+      shifts: {
+        sack: string;
+        time: string;
+        good: number;
+        reject: number;
+        kgs: string;
+      }[];
+    }[];
+  }
+): Promise<void> {
+  return withSheetsAuthError(async () => {
+    const sheets = getSheetsClient();
+    let finalLastRow: number | null = null;
+    let firstSackLabel = "";
+    let grandGood = 0;
+    let grandReject = 0;
+
+    for (let groupIndex = 0; groupIndex < report.dateGroups.length; groupIndex++) {
+      const group = report.dateGroups[groupIndex];
+      const rows = group.shifts.map((shift) => ([
+        group.date,
+        shift.sack,
+        shift.time,
+        shift.good,
+        shift.reject,
+        "",
+        shift.kgs,
+      ]));
+
+      if (rows.length === 0) continue;
+
+      const appendRes = await sheets.spreadsheets.values.append({
+        spreadsheetId,
+        range: `${tabName}!A:G`,
+        valueInputOption: "USER_ENTERED",
+        insertDataOption: "INSERT_ROWS",
+        requestBody: { values: rows },
+      });
+
+      const updatedRange: string = appendRes.data.updates?.updatedRange || "";
+      const rowMatch = updatedRange.match(/:[A-Z]+(\d+)$/);
+      const lastRow = rowMatch ? parseInt(rowMatch[1], 10) : null;
+      if (lastRow) {
+        finalLastRow = lastRow;
+      }
+
+      if (!firstSackLabel) {
+        firstSackLabel = toOrdinalLabel(group.shifts[0]?.sack || "", groupIndex);
+      }
+
+      grandGood += group.shifts.reduce((sum, shift) => sum + (Number(shift.good) || 0), 0);
+      grandReject += group.shifts.reduce((sum, shift) => sum + (Number(shift.reject) || 0), 0);
+    }
+
+    if (finalLastRow) {
+      await sheets.spreadsheets.values.update({
+        spreadsheetId,
+        range: `${tabName}!H${finalLastRow}:I${finalLastRow}`,
+        valueInputOption: "USER_ENTERED",
+        requestBody: {
+          values: [[
+            `${firstSackLabel} Total Good: ${grandGood}`,
+            `${firstSackLabel} Total Reject: ${grandReject}`,
+          ]],
+        },
+      });
+    }
   });
 }
 

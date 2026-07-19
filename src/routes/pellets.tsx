@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   PieChart,
   Pie,
@@ -26,9 +26,10 @@ import {
   ChevronDown,
   MoreVertical,
   Plus,
+  X,
 } from "lucide-react";
 import { Sidebar } from "../components/Sidebar";
-import { getPelletsDataFn, getPelletsTabsFn } from "../lib/pellets-server-functions";
+import { addPelletsRecordFn, getPelletsDataFn, getPelletsTabsFn } from "../lib/pellets-server-functions";
 import type { PelletRecord } from "../lib/pellets-sheets";
 
 export const Route = createFileRoute("/pellets")({
@@ -164,6 +165,7 @@ function Panel({ title, children }: { title: string; children: React.ReactNode }
 }
 
 function PelletsDashboard() {
+  const qc = useQueryClient();
   const { data: tabs = [] } = useQuery({
     queryKey: ["pellets-tabs"],
     queryFn: () => getPelletsTabsFn(),
@@ -183,6 +185,7 @@ function PelletsDashboard() {
   const [tableFilter, setTableFilter] = useState<string>("All");
   const [tableView, setTableView] = useState<"month" | "sack">("month");
   const [visibleCount, setVisibleCount] = useState(50);
+  const [addRecordOpen, setAddRecordOpen] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const monthOptions = useMemo(() => inferMonthOptions(records), [records]);
@@ -378,6 +381,20 @@ function PelletsDashboard() {
   const hasMore = visibleCount < tableRecords.length;
   const displayError = error instanceof Error ? error : null;
 
+  const addRecord = useMutation({
+    mutationFn: (payload: PelletsReportPayload) =>
+      addPelletsRecordFn({
+        data: {
+          tabName: payload.tabName,
+          dateGroups: payload.dateGroups,
+        },
+      }),
+    onSuccess: async () => {
+      await qc.invalidateQueries({ queryKey: ["pellets-data"] });
+      setAddRecordOpen(false);
+    },
+  });
+
   return (
     <div className="h-screen bg-ccb-canvas overflow-hidden">
       <div className="flex h-full bg-white">
@@ -562,7 +579,11 @@ function PelletsDashboard() {
                         </select>
                         <ChevronDown size={13} className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground" />
                       </div>
-                      <button className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground hover:bg-primary/90">
+                      <button
+                        type="button"
+                        onClick={() => setAddRecordOpen(true)}
+                        className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground hover:bg-primary/90"
+                      >
                         <Plus size={13} /> Add Record
                       </button>
                     </div>
@@ -628,6 +649,425 @@ function PelletsDashboard() {
           </main>
         </div>
       </div>
+
+      {addRecordOpen && (
+        <AddPelletsRecordModal
+          tabs={tabs}
+          saving={addRecord.isPending}
+          onClose={() => setAddRecordOpen(false)}
+          onSave={(payload) => addRecord.mutate(payload)}
+        />
+      )}
     </div>
+  );
+}
+
+type PelletsShiftInput = {
+  id: string;
+  sack: string;
+  time: string;
+  good: string;
+  reject: string;
+  kgs: string;
+};
+
+type PelletsDateGroupInput = {
+  id: string;
+  date: string;
+  shifts: PelletsShiftInput[];
+};
+
+type PelletsReportPayload = {
+  tabName: string;
+  dateGroups: {
+    date: string;
+    shifts: {
+      sack: string;
+      time: string;
+      good: number;
+      reject: number;
+      kgs: string;
+    }[];
+  }[];
+};
+
+function uid() {
+  return Math.random().toString(36).slice(2, 9);
+}
+
+function emptyShift(): PelletsShiftInput {
+  return {
+    id: uid(),
+    sack: "",
+    time: "",
+    good: "0",
+    reject: "0",
+    kgs: "",
+  };
+}
+
+function emptyDateGroup(): PelletsDateGroupInput {
+  return {
+    id: uid(),
+    date: new Date().toISOString().split("T")[0],
+    shifts: [emptyShift()],
+  };
+}
+
+function addOneDay(dateStr: string): string {
+  const base = new Date(`${dateStr}T00:00:00`);
+  if (Number.isNaN(base.getTime())) {
+    return new Date().toISOString().split("T")[0];
+  }
+  base.setDate(base.getDate() + 1);
+  return base.toISOString().split("T")[0];
+}
+
+function AddPelletsRecordModal({
+  tabs,
+  saving,
+  onClose,
+  onSave,
+}: {
+  tabs: string[];
+  saving?: boolean;
+  onClose: () => void;
+  onSave: (payload: PelletsReportPayload) => void;
+}) {
+  const defaultTab = tabs[tabs.length - 1] || "";
+  const [tabName, setTabName] = useState(defaultTab);
+  const [dateGroups, setDateGroups] = useState<PelletsDateGroupInput[]>([emptyDateGroup()]);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    if (!tabName && defaultTab) setTabName(defaultTab);
+  }, [defaultTab, tabName]);
+
+  const updateGroupDate = (groupId: string, date: string) => {
+    setDateGroups((prev) => prev.map((group) => (group.id === groupId ? { ...group, date } : group)));
+  };
+
+  const addDateGroup = () => {
+    setDateGroups((prev) => {
+      const firstGroupFirstShift = prev[0]?.shifts[0];
+      const previousGroup = prev[prev.length - 1];
+      const nextGroup = emptyDateGroup();
+      nextGroup.date = addOneDay(previousGroup?.date || nextGroup.date);
+      if (firstGroupFirstShift) {
+        nextGroup.shifts[0] = {
+          ...nextGroup.shifts[0],
+          sack: firstGroupFirstShift.sack,
+          kgs: firstGroupFirstShift.kgs,
+        };
+      }
+      return [...prev, nextGroup];
+    });
+  };
+
+  const removeDateGroup = (groupId: string) => {
+    setDateGroups((prev) => (prev.length > 1 ? prev.filter((group) => group.id !== groupId) : prev));
+  };
+
+  const addShift = (groupId: string) => {
+    setDateGroups((prev) =>
+      prev.map((group) =>
+        group.id === groupId
+          ? {
+              ...group,
+              shifts: [
+                ...group.shifts,
+                {
+                  ...emptyShift(),
+                  ...(() => {
+                    const firstShift = group.shifts[0];
+                    return {
+                      sack: firstShift?.sack ?? "",
+                      kgs: firstShift?.kgs ?? "",
+                    };
+                  })(),
+                },
+              ],
+            }
+          : group
+      )
+    );
+  };
+
+  const removeShift = (groupId: string, shiftId: string) => {
+    setDateGroups((prev) =>
+      prev.map((group) =>
+        group.id === groupId
+          ? { ...group, shifts: group.shifts.length > 1 ? group.shifts.filter((shift) => shift.id !== shiftId) : group.shifts }
+          : group
+      )
+    );
+  };
+
+  const updateShift = (groupId: string, shiftId: string, key: keyof Omit<PelletsShiftInput, "id">, value: string) => {
+    setDateGroups((prev) =>
+      prev.map((group) =>
+        group.id === groupId
+          ? {
+              ...group,
+              shifts: group.shifts.map((shift) => (shift.id === shiftId ? { ...shift, [key]: value } : shift)),
+            }
+          : group
+      )
+    );
+  };
+
+  const handleSave = () => {
+    setError("");
+
+    if (!tabName) {
+      setError("Please choose a sheet tab.");
+      return;
+    }
+
+    if (dateGroups.length === 0) {
+      setError("Add at least one date group.");
+      return;
+    }
+
+    for (const group of dateGroups) {
+      if (!group.date.trim()) {
+        setError("Every date group needs a date.");
+        return;
+      }
+      if (group.shifts.length === 0) {
+        setError("Every date group needs at least one shift.");
+        return;
+      }
+      for (const shift of group.shifts) {
+        if (!shift.sack.trim()) {
+          setError("Sack # is required for each shift.");
+          return;
+        }
+        if (!shift.time.trim()) {
+          setError("Time is required for each shift.");
+          return;
+        }
+      }
+    }
+
+    onSave({
+      tabName,
+      dateGroups: dateGroups.map((group) => ({
+        date: group.date.trim(),
+        shifts: group.shifts.map((shift) => ({
+          sack: shift.sack.trim(),
+          time: shift.time.trim(),
+          good: Number(shift.good) || 0,
+          reject: Number(shift.reject) || 0,
+          kgs: shift.kgs.trim(),
+        })),
+      })),
+    });
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-ccb-navy/50 backdrop-blur-sm p-4" onClick={onClose}>
+      <div
+        className="w-[96vw] max-w-5xl max-h-[92vh] flex flex-col rounded-2xl bg-white shadow-[0_30px_80px_-20px_rgba(26,37,96,0.5)] overflow-hidden"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between px-8 py-4 border-b border-border shrink-0">
+          <div>
+            <h2 className="text-[15px] font-bold text-primary">Add Pellets Record</h2>
+            <p className="mt-0.5 text-[12px] text-muted-foreground">
+              Add date groups and pellet rows with the same workflow style as O-Ring.
+            </p>
+            <div className="mt-2 flex items-center gap-2">
+              <span className="text-[11px] text-muted-foreground">Save to sheet:</span>
+              <select
+                value={tabName}
+                onChange={(e) => setTabName(e.target.value)}
+                className="appearance-none rounded-lg border border-border bg-muted pl-2.5 pr-7 py-1 text-[12px] font-semibold text-primary outline-none focus:border-primary"
+              >
+                {tabs.length > 0
+                  ? tabs.map((tab) => <option key={tab} value={tab}>{tab}</option>)
+                  : <option value={tabName}>{tabName || "Sheet1"}</option>
+                }
+              </select>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-lg p-1.5 text-muted-foreground hover:bg-muted hover:text-primary transition"
+          >
+            <X size={18} />
+          </button>
+        </div>
+
+        <form onSubmit={(e) => { e.preventDefault(); handleSave(); }} className="flex flex-col flex-1 overflow-hidden">
+          <div className="flex-1 overflow-y-auto px-8 py-5 space-y-4">
+            <div className="flex items-center justify-between">
+              <p className="text-[12px] font-bold text-primary">{dateGroups.length} Date Group{dateGroups.length !== 1 ? "s" : ""}</p>
+              <button
+                type="button"
+                onClick={addDateGroup}
+                className="flex items-center gap-1.5 rounded-lg border border-primary px-3 py-2 text-[12px] font-semibold text-primary hover:bg-primary hover:text-white transition"
+              >
+                <Plus size={13} /> Add Date
+              </button>
+            </div>
+
+            {dateGroups.map((group, groupIndex) => {
+              const totalGood = group.shifts.reduce((t, s) => t + (Number(s.good) || 0), 0);
+              const totalReject = group.shifts.reduce((t, s) => t + (Number(s.reject) || 0), 0);
+
+              return (
+                <div key={group.id} className="rounded-xl border border-border overflow-hidden">
+                  <div className="flex items-center gap-3 bg-muted/40 px-4 py-3 border-b border-border">
+                    <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground w-8">
+                      #{groupIndex + 1}
+                    </span>
+                    <input
+                      type="date"
+                      value={group.date}
+                      onChange={(e) => updateGroupDate(group.id, e.target.value)}
+                      className="rounded-lg border border-border bg-white px-3 py-2 text-[13px] text-primary outline-none focus:border-primary"
+                    />
+                    <span className="ml-auto text-[12px] text-muted-foreground font-medium">
+                      {group.shifts.length} shift{group.shifts.length !== 1 ? "s" : ""}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => addShift(group.id)}
+                      className="flex items-center gap-1.5 rounded-lg border border-border bg-white px-3 py-1.5 text-[12px] font-semibold text-primary hover:border-primary hover:text-primary transition"
+                    >
+                      <Plus size={12} /> Shift
+                    </button>
+                    {dateGroups.length > 1 && (
+                      <button
+                        type="button"
+                        onClick={() => removeDateGroup(group.id)}
+                        className="rounded-lg p-1.5 text-muted-foreground hover:text-destructive hover:bg-destructive/5 transition"
+                      >
+                        <X size={15} />
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="p-4 space-y-2">
+                    <div
+                      className="grid gap-x-4"
+                      style={{ gridTemplateColumns: "18fr 18fr 14fr 14fr 18fr auto" }}
+                    >
+                      {["Sack #", "Time", "Good", "Reject", "kgs", ""].map((h, i) => (
+                        <span key={i} className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground truncate">
+                          {h}
+                        </span>
+                      ))}
+                    </div>
+
+                    {group.shifts.map((shift) => (
+                      <div
+                        key={shift.id}
+                        className="grid gap-x-4 gap-y-2 items-center"
+                        style={{ gridTemplateColumns: "18fr 18fr 14fr 14fr 18fr auto" }}
+                      >
+                        <input
+                          value={shift.sack}
+                          onChange={(e) => updateShift(group.id, shift.id, "sack", e.target.value)}
+                          placeholder="e.g. 1"
+                          className="min-w-0 rounded-lg border border-border bg-white px-2.5 py-2 text-[12px] text-primary placeholder:text-muted-foreground outline-none focus:border-primary"
+                        />
+                        <input
+                          value={shift.time}
+                          onChange={(e) => updateShift(group.id, shift.id, "time", e.target.value)}
+                          placeholder="6am-8am"
+                          className="min-w-0 rounded-lg border border-border bg-white px-2.5 py-2 text-[12px] text-primary placeholder:text-muted-foreground outline-none focus:border-primary"
+                        />
+                        <input
+                          type="number"
+                          min={0}
+                          value={shift.good}
+                          onChange={(e) => updateShift(group.id, shift.id, "good", e.target.value)}
+                          placeholder="0"
+                          className="min-w-0 rounded-lg border border-border bg-white px-1.5 py-2 text-[12px] text-primary outline-none focus:border-primary text-center"
+                        />
+                        <input
+                          type="number"
+                          min={0}
+                          value={shift.reject}
+                          onChange={(e) => updateShift(group.id, shift.id, "reject", e.target.value)}
+                          placeholder="0"
+                          className="min-w-0 rounded-lg border border-border bg-white px-1.5 py-2 text-[12px] text-primary outline-none focus:border-primary text-center"
+                        />
+                        <input
+                          value={shift.kgs}
+                          onChange={(e) => updateShift(group.id, shift.id, "kgs", e.target.value)}
+                          placeholder="e.g. 25 kg"
+                          className="min-w-0 rounded-lg border border-border bg-white px-2.5 py-2 text-[12px] text-primary placeholder:text-muted-foreground outline-none focus:border-primary"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => removeShift(group.id, shift.id)}
+                          disabled={group.shifts.length === 1}
+                          className="flex items-center gap-1 rounded-lg border border-border bg-white px-2 py-2 text-[11px] font-semibold text-muted-foreground hover:border-destructive hover:text-destructive hover:bg-destructive/5 disabled:opacity-30 transition shrink-0 whitespace-nowrap"
+                        >
+                          <X size={11} /> Shift
+                        </button>
+                      </div>
+                    ))}
+
+                    <div className="flex items-center gap-5 rounded-lg bg-muted/40 border border-border px-4 py-2.5 mt-2">
+                      <span className="text-[10.5px] font-bold uppercase tracking-wider text-muted-foreground">Date Total</span>
+                      <span className="h-3 w-px bg-border" />
+                      <span className="text-[12.5px] font-bold text-primary">Good: {totalGood}</span>
+                      <span className="text-[12.5px] font-bold text-destructive">Reject: {totalReject}</span>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+
+            <div className="rounded-xl border border-border bg-[#F0F3FF] px-5 py-3.5 flex items-center gap-6">
+              <span className="text-[11.5px] font-bold uppercase tracking-wider text-primary">Grand Total</span>
+              <span className="h-4 w-px bg-border" />
+              <span className="text-[13px] font-bold text-primary">
+                Good: {dateGroups.reduce((t, g) => t + g.shifts.reduce((s, x) => s + (Number(x.good) || 0), 0), 0)}
+              </span>
+              <span className="text-[13px] font-bold text-destructive">
+                Reject: {dateGroups.reduce((t, g) => t + g.shifts.reduce((s, x) => s + (Number(x.reject) || 0), 0), 0)}
+              </span>
+              <span className="ml-auto text-[11px] text-muted-foreground">
+                {dateGroups.length} date{dateGroups.length > 1 ? "s" : ""} ·{" "}
+                {dateGroups.reduce((t, g) => t + g.shifts.length, 0)} shift{dateGroups.reduce((t, g) => t + g.shifts.length, 0) !== 1 ? "s" : ""}
+              </span>
+            </div>
+          </div>
+
+          <div className="flex items-center justify-end gap-2 px-8 py-4 border-t border-border bg-white shrink-0">
+            <button
+              type="button"
+              onClick={onClose}
+              disabled={saving}
+              className="rounded-lg border border-border bg-white px-5 py-2 text-[12.5px] font-semibold text-primary hover:bg-muted disabled:opacity-50 transition"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={saving}
+              className="rounded-lg bg-primary px-5 py-2 text-[12.5px] font-semibold text-white hover:bg-primary/90 disabled:opacity-50 transition"
+            >
+              {saving ? "Saving..." : `Save ${dateGroups.length} Date${dateGroups.length > 1 ? "s" : ""} · ${dateGroups.reduce((t, g) => t + g.shifts.length, 0)} Shift${dateGroups.reduce((t, g) => t + g.shifts.length, 0) !== 1 ? "s" : ""}`}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <label className="block">
+      <div className="mb-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">{label}</div>
+      {children}
+    </label>
   );
 }
